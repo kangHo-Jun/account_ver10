@@ -97,8 +97,14 @@ class ReaderModule:
             data = []
             for i in range(1, row_count):
                 try:
+                    date_val = date_cells[i].inner_text().strip()
+                    # 헤더 행 또는 불필요한 행 필터링
+                    if date_val == "결제요청일시" or not date_val:
+                        logger.info(f"   ⏩ 행 {i} 건너뜀 (헤더 또는 빈 데이터)")
+                        continue
+
                     data.append({
-                        'date_raw': date_cells[i].inner_text().strip(),
+                        'date_raw': date_val,
                         'customer': customer_cells[i].inner_text().strip() if i < len(customer_cells) else "",
                         'amount': amount_cells[i].inner_text().strip() if i < len(amount_cells) else "",
                         'account': account_cells[i].inner_text().strip() if i < len(account_cells) else "",

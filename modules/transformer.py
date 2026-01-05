@@ -60,7 +60,14 @@ class TransformerModule:
                 amount = amount_raw
 
             customer = row['customer']
-            account = row['account']
+            account_raw = row['account']
+
+            # 3. 카드사 명칭 통일: '카드'가 포함된 경우 '카드사'로 변환
+            if '카드' in account_raw:
+                account = '카드사'
+                logger.info(f"   💳 카드사 명칭 통일: {account_raw} -> {account}")
+            else:
+                account = account_raw
 
             # 입금보고서 행 구성
             paste_row = [
