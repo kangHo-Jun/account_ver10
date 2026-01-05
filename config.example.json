@@ -1,0 +1,35 @@
+{
+    "mode": "production",
+    "credentials": {
+        "company_code": "여기에_회사코드_입력",
+        "username": "여기에_아이디_입력",
+        "password": "여기에_비밀번호_입력"
+    },
+    "urls": {
+        "login": "https://login.ecount.com/",
+        "payment_query_hash": "menuType=MENUTREE_000004&menuSeq=MENUTREE_002905&groupSeq=MENUTREE_000030&prgId=E040254&depth=4",
+        "deposit_report_hash": "menuType=MENUTREE_000001&menuSeq=MENUTREE_000069&groupSeq=MENUTREE_000010&prgId=E010403&depth=3"
+    },
+    "schedule": {
+        "enabled": true,
+        "interval_minutes": 30,
+        "work_hours": {
+            "start": "06:00",
+            "end": "18:00"
+        }
+    },
+    "browser": {
+        "headless": true,
+        "timeout": 30000
+    },
+    "notification": {
+        "email": {
+            "enabled": true,
+            "smtp_server": "smtp.gmail.com",
+            "smtp_port": 587,
+            "sender": "your-gmail@gmail.com",
+            "sender_password": "google-app-password-here",
+            "recipient": "zartkang@gmail.com"
+        }
+    }
+}

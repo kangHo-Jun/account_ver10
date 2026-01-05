@@ -1,0 +1,4 @@
+playwright
+pyperclip
+pandas
+openpyxl

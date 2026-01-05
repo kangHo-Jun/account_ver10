@@ -1,0 +1,101 @@
+import json
+import time
+from pathlib import Path
+from datetime import datetime
+from playwright.sync_api import sync_playwright
+from core.logger import logger
+from utils.config import HEADLESS_MODE
+
+class BrowserManager:
+    def __init__(self):
+        self.playwright = None
+        self.browser = None
+        self.context = None
+        self.page = None
+        self.session_file = Path("sessions/session.json")
+
+    def start(self, headless=None):
+        """브라우저 시작"""
+        if headless is None:
+            headless = HEADLESS_MODE
+
+        logger.info(f"🌐 브라우저 시작 중... (headless={headless})")
+        if not self.playwright:
+            self.playwright = sync_playwright().start()
+        
+        if not self.browser:
+            self.browser = self.playwright.chromium.launch(
+                headless=headless,
+                slow_mo=300
+            )
+        
+        self.context = self.browser.new_context()
+        self.page = self.context.new_page()
+        logger.info("✅ 브라우저 시작 완료")
+        return self.page
+
+    def load_session(self) -> bool:
+        """저장된 세션 로드"""
+        if not self.session_file.exists():
+            logger.info("ℹ️ 저장된 세션 없음")
+            return False
+
+        try:
+            with open(self.session_file, 'r', encoding='utf-8') as f:
+                session_data = json.load(f)
+
+            if 'cookies' in session_data:
+                self.context.add_cookies(session_data['cookies'])
+                logger.info("📋 세션 쿠키 로드 완료")
+
+                saved_url = session_data.get('url', 'https://loginab.ecount.com/ec5/view/erp')
+                
+                # 페이지가 닫혀있는지 확인 후 재생성
+                if self.page.is_closed():
+                    self.page = self.context.new_page()
+
+                logger.info(f"📄 세션 URL 접속 시도: {saved_url}")
+                self.page.goto(saved_url, wait_until='load', timeout=30000)
+                time.sleep(5) 
+
+                current_url = self.page.url
+                if "app.login" not in current_url and "login.ecount.com" not in current_url:
+                    logger.info(f"✅ 세션 유효함 (URL: {current_url})")
+                    return True
+                else:
+                    logger.warning(f"⚠️ 세션 만료됨 (로그인 페이지 감지: {current_url})")
+                    self.context.clear_cookies()
+                    return False
+            return False
+        except Exception as e:
+            logger.error(f"❌ 세션 로드 실패: {e}")
+            return False
+
+    def save_session(self):
+        """현재 세션 저장"""
+        try:
+            if self.page.url.startswith('https://login.ecount.com/'):
+                return
+
+            cookies = self.context.cookies()
+            session_data = {
+                'cookies': cookies,
+                'saved_at': datetime.now().isoformat(),
+                'url': self.page.url
+            }
+
+            self.session_file.parent.mkdir(exist_ok=True)
+            with open(self.session_file, 'w', encoding='utf-8') as f:
+                json.dump(session_data, f, ensure_ascii=False, indent=2)
+
+            logger.info("💾 세션 저장 완료")
+        except Exception as e:
+            logger.error(f"❌ 세션 저장 실패: {e}")
+
+    def close(self):
+        """브라우저 종료"""
+        if self.browser:
+            self.browser.close()
+        if self.playwright:
+            self.playwright.stop()
+        logger.info("🛑 브라우저 종료")

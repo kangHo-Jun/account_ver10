@@ -1,0 +1,30 @@
+# 민감한 정보
+config.json
+credentials.json
+*.log
+
+# 세션 및 데이터
+sessions/
+logs/
+uploaded_records.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
