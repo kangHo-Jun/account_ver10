@@ -19,8 +19,8 @@ class TransformerModule:
         with open(self.records_file, 'w', encoding='utf-8') as f:
             json.dump(list(records), f, ensure_ascii=False, indent=2)
 
-    def transform(self, raw_data: list) -> tuple:
-        """입금보고서 형식으로 변환 + 중복 체크"""
+    def transform(self, raw_data: list, reflected_nos: set = None) -> tuple:
+        """입금보고서 형식으로 변환 + 실시간/로컬 중복 체크"""
         logger.info("🔄 데이터 변환 중...")
         
         uploaded_records = self.load_uploaded_records()
@@ -31,18 +31,31 @@ class TransformerModule:
 
         for row in raw_data:
             record_key = row['date_raw']
+            auth_no = row.get('auth_no', '')
+            status = row.get('status', '')
+            customer = row.get('customer', '')
+            amount_val = row.get('amount', '')
+
+            # [V10] 데이터 무결성 검증: 필수값(금액/고객명) 누락 또는 실패 건 제외
+            if not customer or not amount_val or status in ['승인실패', '취소실패']:
+                reason = "필수값 누락" if not (customer and amount_val) else f"상태 {status}"
+                logger.info(f"   ⏩ 데이터 제외: {reason} (일시: {record_key})")
+                continue
+
+            # 1. 로컬 기록 대조 (작업 일시 기준)
             if record_key in uploaded_records:
                 continue
-
-            status = row.get('status', '')
             
-            # 1. '승인실패' 또는 '취소실패'인 경우 해당 행 제외
-            if status in ['승인실패', '취소실패']:
-                logger.info(f"   ⏩ {status} 행 제외 (Key: {record_key})")
+            # 2. 실시간 ERP '회계반영' 내역 대조 (승인번호 기준)
+            if reflected_nos and auth_no and auth_no in reflected_nos:
+                logger.info(f"   🛡️ 실시간 중복 차단: 승인번호 {auth_no} (이미 회계반영됨)")
                 continue
 
-            # 날짜 변환
-            date_part = row['date_raw'].split(' ')[0].replace('/', '-')
+            if not auth_no:
+                logger.warning(f"   ⚠️ 승인번호를 가져오지 못함 (일시: {record_key} / 고객: {customer})")
+
+            # 날짜 변환 (ERP 표준 / 형식으로 복구)
+            date_part = row['date_raw'].split(' ')[0] # 2026/01/06 형태 유지
             amount_raw = row['amount'].replace(',', '')
             
             if not amount_raw:
@@ -50,7 +63,6 @@ class TransformerModule:
 
             # 2. '취소'인 경우 금액에 마이너스(-) 추가
             if status == '취소':
-                # 이미 마이너스가 없는 경우에만 추가 (혹시 모를 중복 방지)
                 if not amount_raw.startswith('-'):
                     amount = f"-{amount_raw}"
                     logger.info(f"   ➖ '취소' 상태 감지: 금액 {amount_raw} -> {amount} 변환")
@@ -62,10 +74,13 @@ class TransformerModule:
             customer = row['customer']
             account_raw = row['account']
 
-            # 3. 카드사 명칭 통일: '카드'가 포함된 경우 '카드사'로 변환
-            if '카드' in account_raw:
+            # 3. 카드사 명칭 통일 및 기본값 설정
+            if not account_raw or '카드' in account_raw:
                 account = '카드사'
-                logger.info(f"   💳 카드사 명칭 통일: {account_raw} -> {account}")
+                if not account_raw:
+                    logger.info(f"   ⚠️ '입금계좌코드'(매입사) 누락 감지: 기본값 '카드사' 할당")
+                else:
+                    logger.info(f"   💳 카드사 명칭 통일: {account_raw} -> {account}")
             else:
                 account = account_raw
 

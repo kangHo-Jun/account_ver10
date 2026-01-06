@@ -29,7 +29,9 @@ class BrowserManager:
                 slow_mo=300
             )
         
-        self.context = self.browser.new_context()
+        self.context = self.browser.new_context(
+            permissions=['clipboard-read', 'clipboard-write']
+        )
         self.page = self.context.new_page()
         logger.info("✅ 브라우저 시작 완료")
         return self.page
@@ -94,8 +96,24 @@ class BrowserManager:
 
     def close(self):
         """브라우저 종료"""
-        if self.browser:
-            self.browser.close()
-        if self.playwright:
-            self.playwright.stop()
-        logger.info("🛑 브라우저 종료")
+        try:
+            if self.page:
+                self.page.close()
+                self.page = None
+            if self.context:
+                self.context.close()
+                self.context = None
+            if self.browser:
+                self.browser.close()
+                self.browser = None
+            if self.playwright:
+                self.playwright.stop()
+                self.playwright = None
+            logger.info("🛑 브라우저 종료 및 상태 초기화 완료")
+        except Exception as e:
+            logger.error(f"⚠️ 브라우저 종료 중 오류: {e}")
+            # 강제 초기화
+            self.page = None
+            self.context = None
+            self.browser = None
+            self.playwright = None

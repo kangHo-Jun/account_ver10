@@ -7,6 +7,7 @@
 
 import pandas as pd
 import time
+import ctypes
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,29 @@ class EcountAutomationOrchestrator:
         self.browser = BrowserManager()
         self.notifier = NotifierModule()
         self.stats = {"total": 0, "success": 0, "failure": 0, "count": 0}
+        self.is_keep_alive = False
+
+    def set_keep_alive(self, enable=True):
+        """Windows API를 호출하여 절전모드 진입 방지 또는 해제"""
+        try:
+            # ES_CONTINUOUS: 설정 지속
+            # ES_SYSTEM_REQUIRED: 시스템 절전 방지
+            # ES_AWAYMODE_REQUIRED: 어웨이 모드 (선택적)
+            ES_CONTINUOUS = 0x80000000
+            ES_SYSTEM_REQUIRED = 0x00000001
+            
+            if enable:
+                if not self.is_keep_alive:
+                    ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
+                    self.is_keep_alive = True
+                    logger.info("🛡️ 시스템 절전 모드 방지 기능 활성화")
+            else:
+                if self.is_keep_alive:
+                    ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
+                    self.is_keep_alive = False
+                    logger.info("🌙 시스템 절전 모드 방지 기능 해제")
+        except Exception as e:
+            logger.warning(f"⚠️ 절전 모드 설정 변경 실패: {e}")
 
     def is_work_time(self):
         """현재 시간이 업무 시간인지 확인 (06:00 ~ 18:00)"""
@@ -64,37 +88,24 @@ class EcountAutomationOrchestrator:
 
             # 3. 데이터 읽기
             reader = ReaderModule(page)
-            excel_path = Path("양식.xlsx")
             
-            if excel_path.exists():
-                logger.info(f"📊 엑셀 파일 감지: {excel_path}")
-                df = pd.read_excel(excel_path, skiprows=1)
-                raw_data = []
-                for _, row in df.iterrows():
-                    d_val = str(row.get('결제요청일시', '')).strip()
-                    if not d_val or d_val in ['nan', 'None']: continue
-                    raw_data.append({
-                        'date_raw': d_val,
-                        'customer': str(row.get('고객명', '')).strip(),
-                        'amount': str(row.get('결제금액', '')).strip(),
-                        'account': str(row.get('매입지명', '')).strip(),
-                        'status': str(row.get('결제상태', '')).strip()
-                    })
-            else:
-                if not reader.navigate_to_payment_query():
-                    raise Exception("결제조회 페이지 이동 실패")
-                if not reader.click_unreflected_filter():
-                    raise Exception("미반영 필터 클릭 실패")
-                raw_data = reader.read_payment_data()
+            # [V10] 실시간 ERP 회계반영 내역 수집 (중복 제로 달성용)
+            if not reader.navigate_to_payment_query():
+                raise Exception("결제조회 페이지 이동 실패")
+            
+            # get_reflected_status 내부에서 '회계반영' 확인 후 자동으로 '미반영'으로 복구함
+            reflected_nos = reader.get_reflected_status()
+            
+            raw_data = reader.read_payment_data()
 
             if not raw_data:
                 logger.info("ℹ️ 처리할 데이터가 없습니다.")
                 self.stats["success"] += 1
                 return
 
-            # 4. 데이터 변환
+            # 4. 데이터 변환 (실시간 내역 전달)
             transformer = TransformerModule()
-            paste_rows, new_keys = transformer.transform(raw_data)
+            paste_rows, new_keys = transformer.transform(raw_data, reflected_nos=reflected_nos)
             
             if not paste_rows:
                 logger.info("ℹ️ 업로드할 새 데이터가 없습니다.")
@@ -125,9 +136,13 @@ class EcountAutomationOrchestrator:
             logger.error(err_msg)
             # 에러 발생 시 이메일 알림
             self.notifier.send_error_notification(err_msg, traceback.format_exc())
-            
-            # 테스트 모드가 아니면 브라우저 재시작을 위해 리셋 고려 가능
-            # 여기서는 단순히 다음 사이클 대기
+        
+        finally:
+            # [지능형 제어] 사이클 종료 시 무조건 브라우저를 닫아 화면을 정리함
+            try:
+                self.browser.close()
+            except:
+                pass
 
     def run(self):
         logger.info("=" * 60)
@@ -143,21 +158,26 @@ class EcountAutomationOrchestrator:
         else:
             # 운영 모드: 무한 루프
             interval = SCHEDULE_CONFIG.get("interval_minutes", 30) * 60
-            while True:
-                if self.is_work_time():
-                    self.single_cycle()
-                    logger.info(f"💤 {interval//60}분 대기 중...")
-                    time.sleep(interval)
-                else:
-                    # 업무 종료 시 요약 리포트 발송 (오늘 한 번도 안 보냈다면)
-                    if self.stats["total"] > 0:
-                        logger.info("🌙 업무 시간 종료. 일일 요약 리포트를 발송합니다.")
-                        self.notifier.send_summary_notification(self.stats)
-                        # 통계 초기화 (다음 날을 위해)
-                        self.stats = {"total": 0, "success": 0, "failure": 0, "count": 0}
-                    
-                    logger.info(f"🌙 업무 시간 외 (다음 확인 10분 후)")
-                    time.sleep(600)
+            try:
+                while True:
+                    if self.is_work_time():
+                        self.set_keep_alive(True)  # 업무 시간 중 절전 방지
+                        self.single_cycle()
+                        logger.info(f"💤 {interval//60}분 대기 중...")
+                        time.sleep(interval)
+                    else:
+                        self.set_keep_alive(False) # 업무 시간 종료 시 절전 허용
+                        # 업무 종료 시 요약 리포트 발송 (오늘 한 번도 안 보냈다면)
+                        if self.stats["total"] > 0:
+                            logger.info("🌙 업무 시간 종료. 일일 요약 리포트를 발송합니다.")
+                            self.notifier.send_summary_notification(self.stats)
+                            # 통계 초기화 (다음 날을 위해)
+                            self.stats = {"total": 0, "success": 0, "failure": 0, "count": 0}
+                        
+                        logger.info(f"🌙 업무 시간 외 (다음 확인 10분 후)")
+                        time.sleep(600)
+            finally:
+                self.set_keep_alive(False) # 프로그램 종료 시 무조건 절전 허용 복구
 
 if __name__ == "__main__":
     orchestrator = EcountAutomationOrchestrator()
