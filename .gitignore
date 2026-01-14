@@ -7,6 +7,8 @@ credentials.json
 sessions/
 logs/
 uploaded_records.json
+runtime.lock
+heartbeat.txt
 
 # Python
 __pycache__/

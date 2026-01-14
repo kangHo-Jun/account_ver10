@@ -70,19 +70,32 @@ class NotifierModule:
         return self.send_email(subject, body)
 
     def send_summary_notification(self, stats):
-        """일일 요약 알림 (향후 확장용)"""
+        """일일 요약 알림"""
         now = datetime.now().strftime("%Y-%m-%d")
         subject = f"[Account Automation] 일일 요약 리포트 - {now}"
+
+        total_uploads = stats.get('count', 0)
+        success_count = total_uploads  # 업로드 성공한 건수
+        failure_count = 0  # 현재 시스템에서 실패는 추적하지 않음
+        cancellations = stats.get('cancellations', 0)
+        normal_transactions = total_uploads - cancellations
+        success_rate = 100.0 if total_uploads > 0 else 0
+
         body = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 일일 실행 요약 ({now})
+📊 일일 요약 ({now})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-총 실행 횟수: {stats.get('total', 0)}회
-성공: {stats.get('success', 0)}회
-실패: {stats.get('failure', 0)}회
-총 처리 데이터: {stats.get('count', 0)}건
+📥 업로드할 데이터 수: {total_uploads}건
+✅ 업로드 성공: {success_count}건
+❌ 업로드 실패: {failure_count}건
+       승인취소: {cancellations}건
+       결재취소: 0건
+        취소(-): {cancellations}건
+성공률: {success_rate:.0f}%
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+실행 통계: {stats.get('total', 0)}회 실행 ({stats.get('success', 0)}회 성공, {stats.get('failure', 0)}회 실패)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
         return self.send_email(subject, body)

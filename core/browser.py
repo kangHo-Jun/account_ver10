@@ -20,15 +20,16 @@ class BrowserManager:
             headless = HEADLESS_MODE
 
         logger.info(f"🌐 브라우저 시작 중... (headless={headless})")
-        if not self.playwright:
-            self.playwright = sync_playwright().start()
-        
-        if not self.browser:
-            self.browser = self.playwright.chromium.launch(
-                headless=headless,
-                slow_mo=300
-            )
-        
+
+        # Playwright 인스턴스를 매번 새로 생성 (event loop 문제 해결)
+        self.playwright = sync_playwright().start()
+
+        # 브라우저는 매번 새로 생성 (리소스 정리)
+        self.browser = self.playwright.chromium.launch(
+            headless=headless,
+            slow_mo=300
+        )
+
         self.context = self.browser.new_context(
             permissions=['clipboard-read', 'clipboard-write']
         )
@@ -95,7 +96,7 @@ class BrowserManager:
             logger.error(f"❌ 세션 저장 실패: {e}")
 
     def close(self):
-        """브라우저 종료"""
+        """브라우저 및 Playwright 완전 종료"""
         try:
             if self.page:
                 self.page.close()
@@ -109,7 +110,8 @@ class BrowserManager:
             if self.playwright:
                 self.playwright.stop()
                 self.playwright = None
-            logger.info("🛑 브라우저 종료 및 상태 초기화 완료")
+
+            logger.info("🛑 브라우저 및 Playwright 완전 종료")
         except Exception as e:
             logger.error(f"⚠️ 브라우저 종료 중 오류: {e}")
             # 강제 초기화
@@ -117,3 +119,14 @@ class BrowserManager:
             self.context = None
             self.browser = None
             self.playwright = None
+
+    def shutdown(self):
+        """애플리케이션 종료 시 완전 정리"""
+        try:
+            self.close()  # 브라우저 먼저 정리
+            if self.playwright:
+                self.playwright.stop()
+                self.playwright = None
+            logger.info("🛑 Playwright 완전 종료")
+        except Exception as e:
+            logger.error(f"⚠️ Playwright 종료 중 오류: {e}")
