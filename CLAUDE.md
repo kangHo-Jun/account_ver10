@@ -477,3 +477,87 @@ def run(self):
 ---
 
 **Key Takeaway**: The best debugging combines systematic log analysis, understanding system state, and building layered defenses. One-time fixes aren't enough—build systems that prevent, detect, and recover from failures automatically.
+
+---
+
+## Lessons Learned (2026-01-15)
+
+### V13 Update: ERP Pre-Filtered Page Strategy
+
+**Problem**: 코드에서 결제 상태를 필터링하는 것은 중복 작업이었음
+
+**발견 과정**:
+1. 사용자가 "필터링된 페이지를 사용하겠다"고 제안
+2. URL 분석 결과, hash fragment가 기존과 **동일**함을 확인
+3. 스크린샷 분석으로 ERP 페이지 구조 파악
+4. **핵심 발견**: ERP 계정에 필터 설정이 저장되어 있어서 같은 URL로 접속해도 `승인`/`취소`만 표시됨
+
+**Solution**:
+```python
+# Before (V10): 코드에서 상태 필터링
+if status in ['승인실패', '취소실패', '요청중']:
+    continue  # 제외
+
+# After (V13): ERP에서 이미 필터링됨, 필수값 검증만 수행
+if not customer or not amount_val:
+    continue  # 필수값 누락만 체크
+```
+
+### Technical Insights
+
+#### 1. ERP 필터 저장 방식 이해
+- **동일한 URL/hash**로 접속해도 **계정별로 다른 데이터**가 표시될 수 있음
+- ERP 내부에서 사용자별 필터 설정을 저장
+- URL만 보고 페이지 내용을 판단하면 안 됨
+
+#### 2. 세션 재활용 패턴
+```python
+# 실행 중인 시스템의 세션을 별도 스크립트에서 활용
+session_file = Path("sessions/session.json")
+with open(session_file, 'r') as f:
+    session_data = json.load(f)
+
+context.add_cookies(session_data.get('cookies', []))
+page.goto(session_data.get('url', ''))
+```
+**Learning**: 별도 분석 스크립트 실행 시 기존 세션을 재활용하면 로그인 과정 생략 가능
+
+#### 3. 스크린샷 기반 디버깅
+```python
+page.screenshot(path="logs/analyze_page.png", full_page=True)
+```
+**Learning**: ERP처럼 복잡한 iframe 구조에서는 스크린샷이 가장 빠른 UI 분석 방법
+
+### Design Principle: Filter at Source
+
+**Before**:
+```
+ERP (모든 데이터) → 코드 (필터링) → 업로드
+```
+
+**After**:
+```
+ERP (필터링된 데이터) → 코드 (검증만) → 업로드
+```
+
+**Benefits**:
+- 불필요한 데이터 전송 감소
+- 코드 복잡도 감소
+- 단일 책임 원칙 (SRP) 준수: ERP가 필터링, 코드가 변환
+
+### Code Changes Summary (V13)
+
+| File | Change | Reason |
+|------|--------|--------|
+| `modules/transformer.py:49-54` | 상태 필터링 로직 제거 | ERP에서 이미 필터링됨 |
+
+### Verification Checklist
+
+다음 사이클에서 확인할 사항:
+- [ ] 로그에서 `상태 승인실패` 제외 메시지가 사라짐
+- [ ] 모든 `승인`/`취소` 데이터가 정상 업로드됨
+- [ ] `취소` 거래는 여전히 `-` 붙어서 업로드됨
+
+---
+
+**Key Takeaway**: 데이터 필터링은 가능한 소스(source)에 가깝게 수행하라. 코드에서 중복 필터링하면 유지보수 부담만 증가한다. ERP 같은 외부 시스템의 설정을 활용하면 코드를 단순화할 수 있다.

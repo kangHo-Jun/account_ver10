@@ -46,10 +46,10 @@ class TransformerModule:
             customer = row.get('customer', '')
             amount_val = row.get('amount', '')
 
-            # [V10] 데이터 무결성 검증: 필수값(금액/고객명) 누락 또는 실패 건 제외
-            if not customer or not amount_val or status in ['승인실패', '취소실패', '요청중']:
-                reason = "필수값 누락" if not (customer and amount_val) else f"상태 {status}"
-                logger.info(f"   ⏩ 데이터 제외: {reason} (일시: {record_key})")
+            # [V13] 필수값(금액/고객명) 누락 검증만 수행
+            # 참고: ERP 페이지에서 이미 '승인/취소'만 필터링되어 표시됨 (계정 설정)
+            if not customer or not amount_val:
+                logger.info(f"   ⏩ 데이터 제외: 필수값 누락 (일시: {record_key})")
                 stats['excluded_invalid'] += 1
                 continue
 
