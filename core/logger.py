@@ -27,7 +27,7 @@ class Logger:
 
         if not initial:
             # 초기 생성이 아닐 때만 로그 메시지 출력
-            self.info(f"📄 새 로그 파일: {self.log_file.name}")
+            self.info(f"[LOG] 새 로그 파일: {self.log_file.name}")
 
         return self.log_file
 

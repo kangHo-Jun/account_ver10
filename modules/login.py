@@ -9,7 +9,7 @@ class LoginModule:
     def login(self) -> bool:
         """이카운트 로그인"""
         try:
-            logger.info(f"🔐 로그인 페이지 이동: {LOGIN_URL}")
+            logger.info(f"[LOGIN] 로그인 페이지 이동: {LOGIN_URL}")
             self.page.goto(LOGIN_URL, timeout=30000)
             time.sleep(2)
 
@@ -38,10 +38,10 @@ class LoginModule:
             )
 
             if self.page.url.startswith('https://login.ecount.com/'):
-                logger.error("❌ 로그인 실패")
+                logger.error("[ERROR] 로그인 실패")
                 return False
 
-            logger.info("✅ 로그인 성공")
+            logger.info("[OK] 로그인 성공")
             time.sleep(5)
             
             # 여기서 세션 저장을 시도할 수 있도록 브라우저 매니저의 기능 활용 유도
@@ -49,5 +49,5 @@ class LoginModule:
             return True
 
         except Exception as e:
-            logger.error(f"❌ 로그인 오류: {e}")
+            logger.error(f"[ERROR] 로그인 오류: {e}")
             return False

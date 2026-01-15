@@ -236,7 +236,11 @@ Multiple card provider names are unified to "카드사":
 
 ## Code Style Conventions
 
-- **Logging**: Use emoji prefixes for visual scanning (🔄 = process, ✅ = success, ❌ = error, ⚠️ = warning)
+- **Logging**: Use ASCII `[TAG]` prefixes for Windows cp949 compatibility (NOT emojis)
+  - `[OK]` = success, `[ERROR]` = error, `[WARN]` = warning
+  - `[START]`, `[STOP]`, `[CYCLE]` = process lifecycle
+  - `[NAV]`, `[CLICK]`, `[SAVE]` = UI actions
+  - See "Lessons Learned (2026-01-16)" for full mapping
 - **Error Handling**: Always wrap main logic in try/except with email notification on failure
 - **Browser Cleanup**: ALWAYS call `browser.close()` in `finally` blocks
 - **Type Hints**: Not heavily used (legacy codebase), but preferred for new functions
@@ -561,3 +565,124 @@ ERP (필터링된 데이터) → 코드 (검증만) → 업로드
 ---
 
 **Key Takeaway**: 데이터 필터링은 가능한 소스(source)에 가깝게 수행하라. 코드에서 중복 필터링하면 유지보수 부담만 증가한다. ERP 같은 외부 시스템의 설정을 활용하면 코드를 단순화할 수 있다.
+
+---
+
+## Lessons Learned (2026-01-16)
+
+### Windows cp949 인코딩과 이모지 충돌
+
+**Problem**: 프로그램 실행 시 `UnicodeEncodeError: 'cp949' codec can't encode character` 에러 발생
+
+**Root Cause**: Windows 콘솔은 기본적으로 cp949 인코딩을 사용하며, 이모지(유니코드 확장 문자)를 출력할 수 없음
+
+**에러 발생 상황**:
+```
+UnicodeEncodeError: 'cp949' codec can't encode character '\U0001f680' in position 18
+# \U0001f680 = 🚀 (로켓 이모지)
+```
+
+### 해결 과정
+
+**발견된 이모지 에러들** (순차적으로 발견):
+1. `\U0001f680` (🚀) - main.py line 234
+2. `\U0001f4c4` (📄) - logger.py line 30
+3. `\U0001f310` (🌐) - browser.py
+4. `\U0001f4a4` (💤) - main.py line 277
+5. `\U0001f4dd` (📝) - main.py line 204
+
+**Solution**: 모든 Python 파일에서 이모지를 `[TAG]` 형식으로 교체
+
+### 이모지 → 태그 변환 매핑
+
+| 이모지 | 태그 | 용도 |
+|--------|------|------|
+| 🚀 | `[START]` | 프로그램 시작 |
+| ✅ | `[OK]` | 성공 |
+| ❌ | `[ERROR]` | 에러 |
+| ⚠️ | `[WARN]` | 경고 |
+| 📄 | `[LOG]`, `[NAV]` | 로그, 네비게이션 |
+| 🌐 | `[BROWSER]` | 브라우저 |
+| 📋 | `[SESSION]`, `[CLIPBOARD]` | 세션, 클립보드 |
+| 💾 | `[SAVE]` | 저장 |
+| 🛑 | `[STOP]` | 중지 |
+| ℹ️ | `[INFO]` | 정보 |
+| 🔄 | `[TRANSFORM]`, `[CYCLE]` | 변환, 사이클 |
+| 🛡️ | `[DUP]` | 중복 차단 |
+| 📊 | `[SUMMARY]`, `[COUNT]` | 요약, 카운트 |
+| 💤 | `[WAIT]`, `[SLEEP]` | 대기 |
+| 📝 | `[RECORD]` | 기록 |
+| 🌙 | `[SLEEP]` | 업무 외 시간 |
+| 🔐 | `[LOGIN]` | 로그인 |
+| 💳 | `[CARD]` | 카드사 |
+| 📤 | `[UPLOAD]` | 업로드 |
+| 🎯 | `[FOCUS]` | 포커스 |
+| ⌨️ | `[KEY]` | 키 입력 |
+| 📢 | `[RESULT]` | 결과 |
+| 🚨 | `[ALERT]` | 알림 |
+
+### 수정된 파일 목록
+
+| 파일 | 수정 내용 |
+|------|-----------|
+| `main.py` | 🚀, 💤, 📝, ❌, 🔄, 🌙 등 다수 |
+| `core/logger.py` | 📄 → `[LOG]` |
+| `core/browser.py` | 🌐, ✅, ℹ️, 📋, 💾, 🛑 등 |
+| `modules/login.py` | 🔐, ❌, ✅ |
+| `modules/reader.py` | 📄, ❌, 🔘, ✅, ⚠️, 📊 등 |
+| `modules/transformer.py` | 🔄, ⏩, 🛡️, ➖, 💳, 📊 등 |
+| `modules/uploader.py` | 📄, ❌, ℹ️, 📋, 📤, 💾 등 |
+| `modules/notifier.py` | ℹ️, ⚠️, ✅, ❌, 🚨, 📊 등 |
+
+### Technical Insights
+
+#### 1. Windows 인코딩 구조
+```
+콘솔 출력 (print) → cp949 인코딩 → 이모지 불가 ❌
+파일 저장 (UTF-8) → UTF-8 인코딩 → 이모지 가능 ✅
+```
+
+**Key Point**: 로그 파일에는 이모지가 정상 저장되지만, `print()` 시점에서 에러 발생
+
+#### 2. 문제 발견의 어려움
+- 각 에러는 **프로그램 실행 시점**에서만 발견됨
+- 한 이모지 수정 → 재실행 → 다른 이모지 에러 발생 → 반복
+- **5번의 실행 실패** 후 모든 이모지 제거 완료
+
+#### 3. 예방적 해결책
+```python
+# ❌ BAD: 이모지 직접 사용
+logger.info("🚀 프로그램 시작")
+
+# ✅ GOOD: ASCII 태그 사용
+logger.info("[START] 프로그램 시작")
+```
+
+### Code Style Update
+
+**기존 규칙** (CLAUDE.md 239줄):
+```
+- **Logging**: Use emoji prefixes for visual scanning (🔄 = process, ✅ = success, ❌ = error, ⚠️ = warning)
+```
+
+**새로운 규칙**:
+```
+- **Logging**: Use ASCII [TAG] prefixes for Windows compatibility
+  - [OK] = success, [ERROR] = error, [WARN] = warning
+  - [START], [STOP], [CYCLE] = process lifecycle
+  - [NAV], [CLICK], [SAVE] = UI actions
+```
+
+### Verification
+
+수정 후 프로그램 정상 실행 확인:
+```
+[08:22:50] [INFO] [OK] 총 100건의 유효 데이터 추출 완료
+[08:22:50] [INFO] [TRANSFORM] 데이터 변환 중...
+[08:23:08] [INFO] [OK] 저장 성공 확정: 1건 업로드 완료
+[08:24:47] [INFO] [WAIT] 30분 대기 중...
+```
+
+---
+
+**Key Takeaway**: Windows 환경에서 Python 프로그램을 개발할 때는 **콘솔 출력에 이모지를 사용하지 말 것**. 로그 파일(UTF-8)에는 안전하지만, `print()` 시점에서 cp949 인코딩 에러가 발생한다. ASCII 기반 `[TAG]` 형식이 가장 안전하고 이식성이 높다.

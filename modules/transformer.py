@@ -21,7 +21,7 @@ class TransformerModule:
 
     def transform(self, raw_data: list, reflected_nos: set = None) -> tuple:
         """입금보고서 형식으로 변환 + 실시간/로컬 중복 체크"""
-        logger.info("🔄 데이터 변환 중...")
+        logger.info("[TRANSFORM] 데이터 변환 중...")
 
         uploaded_records = self.load_uploaded_records()
         logger.info(f"   기존 업로드 기록: {len(uploaded_records)}건")
@@ -49,7 +49,7 @@ class TransformerModule:
             # [V13] 필수값(금액/고객명) 누락 검증만 수행
             # 참고: ERP 페이지에서 이미 '승인/취소'만 필터링되어 표시됨 (계정 설정)
             if not customer or not amount_val:
-                logger.info(f"   ⏩ 데이터 제외: 필수값 누락 (일시: {record_key})")
+                logger.info(f"   [SKIP] 데이터 제외: 필수값 누락 (일시: {record_key})")
                 stats['excluded_invalid'] += 1
                 continue
 
@@ -60,12 +60,12 @@ class TransformerModule:
 
             # 2. 실시간 ERP '회계반영' 내역 대조 (승인번호 기준)
             if reflected_nos and auth_no and auth_no in reflected_nos:
-                logger.info(f"   🛡️ 실시간 중복 차단: 승인번호 {auth_no} (이미 회계반영됨)")
+                logger.info(f"   [DUP] 실시간 중복 차단: 승인번호 {auth_no} (이미 회계반영됨)")
                 stats['excluded_duplicate_erp'] += 1
                 continue
 
             if not auth_no:
-                logger.warning(f"   ⚠️ 승인번호를 가져오지 못함 (일시: {record_key} / 고객: {customer})")
+                logger.warning(f"   [WARN] 승인번호를 가져오지 못함 (일시: {record_key} / 고객: {customer})")
 
             # 날짜 변환 (ERP 표준 / 형식으로 복구)
             date_part = row['date_raw'].split(' ')[0] # 2026/01/06 형태 유지
@@ -79,7 +79,7 @@ class TransformerModule:
                 stats['cancellations'] += 1
                 if not amount_raw.startswith('-'):
                     amount = f"-{amount_raw}"
-                    logger.info(f"   ➖ '취소' 상태 감지: 금액 {amount_raw} -> {amount} 변환")
+                    logger.info(f"   [CANCEL] '취소' 상태 감지: 금액 {amount_raw} -> {amount} 변환")
                 else:
                     amount = amount_raw
             else:
@@ -93,9 +93,9 @@ class TransformerModule:
             if not account_raw or '카드' in account_raw:
                 account = '카드사'
                 if not account_raw:
-                    logger.info(f"   ⚠️ '입금계좌코드'(매입사) 누락 감지: 기본값 '카드사' 할당")
+                    logger.info(f"   [WARN] '입금계좌코드'(매입사) 누락 감지: 기본값 '카드사' 할당")
                 else:
-                    logger.info(f"   💳 카드사 명칭 통일: {account_raw} -> {account}")
+                    logger.info(f"   [CARD] 카드사 명칭 통일: {account_raw} -> {account}")
             else:
                 account = account_raw
 
@@ -120,19 +120,19 @@ class TransformerModule:
 
         # 상세 처리 결과 로깅
         logger.info("=" * 60)
-        logger.info("📊 사이클 처리 요약")
-        logger.info(f"   📥 총 조회 데이터: {stats['total_raw']}건")
-        logger.info(f"   ✅ 업로드 대상: {len(paste_rows)}건")
+        logger.info("[SUMMARY] 사이클 처리 요약")
+        logger.info(f"   [IN] 총 조회 데이터: {stats['total_raw']}건")
+        logger.info(f"   [OUT] 업로드 대상: {len(paste_rows)}건")
 
         total_excluded = stats['excluded_invalid'] + stats['excluded_duplicate_local'] + stats['excluded_duplicate_erp']
-        logger.info(f"   ⏭️  제외된 데이터: {total_excluded}건")
+        logger.info(f"   [SKIP] 제외된 데이터: {total_excluded}건")
         if total_excluded > 0:
             logger.info(f"      - 중복(로컬): {stats['excluded_duplicate_local']}건")
             logger.info(f"      - 중복(ERP 회계반영): {stats['excluded_duplicate_erp']}건")
             logger.info(f"      - 무효 데이터: {stats['excluded_invalid']}건")
 
         if len(paste_rows) > 0:
-            logger.info(f"   📋 업로드 내역:")
+            logger.info(f"   [DETAIL] 업로드 내역:")
             logger.info(f"      - 일반 거래: {stats['normal_transactions']}건")
             logger.info(f"      - 취소 거래: {stats['cancellations']}건")
         logger.info("=" * 60)

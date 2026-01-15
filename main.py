@@ -121,14 +121,14 @@ class EcountAutomationOrchestrator:
                 if not self.is_keep_alive:
                     ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)
                     self.is_keep_alive = True
-                    logger.info("🛡️ 시스템 절전 모드 방지 기능 활성화")
+                    logger.info("[SYSTEM] 시스템 절전 모드 방지 기능 활성화")
             else:
                 if self.is_keep_alive:
                     ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
                     self.is_keep_alive = False
-                    logger.info("🌙 시스템 절전 모드 방지 기능 해제")
+                    logger.info("[SLEEP] 시스템 절전 모드 방지 기능 해제")
         except Exception as e:
-            logger.warning(f"⚠️ 절전 모드 설정 변경 실패: {e}")
+            logger.warning(f"[WARN] 절전 모드 설정 변경 실패: {e}")
 
     def is_work_time(self):
         """현재 시간이 업무 시간인지 확인 (06:00 ~ 18:00)"""
@@ -148,7 +148,7 @@ class EcountAutomationOrchestrator:
 
     def single_cycle(self):
         """단일 자동화 사이클 실행"""
-        logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 자동화 사이클 시작")
+        logger.info(f"[{datetime.now().strftime('%H:%M:%S')}] [CYCLE] 자동화 사이클 시작")
         self.stats["total"] += 1
         
         try:
@@ -178,7 +178,7 @@ class EcountAutomationOrchestrator:
             raw_data = reader.read_payment_data()
 
             if not raw_data:
-                logger.info("ℹ️ 처리할 데이터가 없습니다.")
+                logger.info("[INFO] 처리할 데이터가 없습니다.")
                 self.stats["success"] += 1
                 return
 
@@ -187,7 +187,7 @@ class EcountAutomationOrchestrator:
             paste_rows, new_keys, cycle_stats = transformer.transform(raw_data, reflected_nos=reflected_nos)
             
             if not paste_rows:
-                logger.info("ℹ️ 업로드할 새 데이터가 없습니다.")
+                logger.info("[INFO] 업로드할 새 데이터가 없습니다.")
                 self.stats["success"] += 1
                 return
 
@@ -201,18 +201,18 @@ class EcountAutomationOrchestrator:
                     uploaded_records = transformer.load_uploaded_records()
                     uploaded_records.update(new_keys)
                     transformer.save_uploaded_records(uploaded_records)
-                    logger.info(f"📝 {len(new_keys)}건 업로드 기록 저장")
+                    logger.info(f"[RECORD] {len(new_keys)}건 업로드 기록 저장")
                 
                 self.stats["success"] += 1
                 self.stats["count"] += len(paste_rows)
                 self.stats["cancellations"] += cycle_stats.get("cancellations", 0)
-                logger.info(f"✅ 사이클 완료 ({len(paste_rows)}건 처리)")
+                logger.info(f"[OK] 사이클 완료 ({len(paste_rows)}건 처리)")
             else:
                 raise Exception("업로드 과정 중 오류")
 
         except Exception as e:
             self.stats["failure"] += 1
-            err_msg = f"❌ 사이클 오류: {str(e)}"
+            err_msg = f"[ERROR] 사이클 오류: {str(e)}"
             logger.error(err_msg)
             # 에러 발생 시 이메일 알림
             self.notifier.send_error_notification(err_msg, traceback.format_exc())
@@ -231,13 +231,13 @@ class EcountAutomationOrchestrator:
     def run(self):
         try:
             logger.info("=" * 60)
-            logger.info(f"🚀 이카운트 웹 자동화 V9.5 실행 (모드: {MODE})")
+            logger.info(f"[START] 이카운트 웹 자동화 V9.5 실행 (모드: {MODE})")
             logger.info("=" * 60)
 
             if TEST_MODE:
                 # 테스트 모드는 1회 실행 후 대기
                 self.single_cycle()
-                logger.info("⚠️ 테스트 완료. 화면을 유지합니다.")
+                logger.info("[TEST] 테스트 완료. 화면을 유지합니다.")
                 input(">>> Enter를 누르면 브라우저를 종료합니다...")
                 self.browser.close()
             else:
@@ -260,7 +260,7 @@ class EcountAutomationOrchestrator:
 
                         # 날짜가 바뀌고 업무시간(06:00) 이후가 되면 프로그램 재시작 (로그 파일 갱신)
                         if current_date > start_date and current_time >= "06:00":
-                            logger.info("🔄 새로운 날 시작 - 프로그램 재시작 (로그 파일 갱신)")
+                            logger.info("[RESTART] 새로운 날 시작 - 프로그램 재시작 (로그 파일 갱신)")
                             self.set_keep_alive(False)
                             self.browser.shutdown()
                             logger.info("=" * 60)
@@ -268,18 +268,18 @@ class EcountAutomationOrchestrator:
 
                         # 17:45 이후이고 아직 보고서를 보내지 않았다면 발송
                         if current_time >= "17:45" and not self.daily_report_sent and self.stats["total"] > 0:
-                            logger.info("📊 일일 요약 리포트 발송 시간 (17:45)")
+                            logger.info("[REPORT] 일일 요약 리포트 발송 시간 (17:45)")
                             self.notifier.send_summary_notification(self.stats)
                             self.daily_report_sent = True
 
                         if self.is_work_time():
                             self.single_cycle()
-                            logger.info(f"💤 {interval//60}분 대기 중...")
+                            logger.info(f"[WAIT] {interval//60}분 대기 중...")
                             time.sleep(interval)
                         else:
                             # 다음 날을 위해 통계 및 플래그 초기화
                             if self.stats["total"] > 0 or self.daily_report_sent:
-                                logger.info("🌙 업무 시간 종료. 통계 초기화")
+                                logger.info("[SLEEP] 업무 시간 종료. 통계 초기화")
                                 self.stats = {
                                     "total": 0,
                                     "success": 0,
@@ -289,7 +289,7 @@ class EcountAutomationOrchestrator:
                                 }
                                 self.daily_report_sent = False
 
-                            logger.info(f"🌙 업무 시간 외 (다음 확인 10분 후)")
+                            logger.info(f"[SLEEP] 업무 시간 외 (다음 확인 10분 후)")
                             time.sleep(600)
                 finally:
                     self.set_keep_alive(False) # 프로그램 종료 시 무조건 절전 허용 복구

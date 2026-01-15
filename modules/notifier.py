@@ -20,11 +20,11 @@ class NotifierModule:
     def send_email(self, subject, body):
         """이메일 발송 실행"""
         if not self.enabled:
-            logger.info("ℹ️ 이메일 알림이 비활성화되어 있습니다.")
+            logger.info("[INFO] 이메일 알림이 비활성화되어 있습니다.")
             return False
             
         if not all([self.sender, self.sender_password, self.recipient]):
-            logger.warning("⚠️ 이메일 설정이 누락되어 발송을 건너뜁니다.")
+            logger.warning("[WARN] 이메일 설정이 누락되어 발송을 건너뜁니다.")
             return False
 
         try:
@@ -42,10 +42,10 @@ class NotifierModule:
             server.sendmail(self.sender, self.recipient, text)
             server.quit()
             
-            logger.info(f"✅ 이메일 알림 발송 완료: {subject}")
+            logger.info(f"[OK] 이메일 알림 발송 완료: {subject}")
             return True
         except Exception as e:
-            logger.error(f"❌ 이메일 발송 실패: {e}")
+            logger.error(f"[ERROR] 이메일 발송 실패: {e}")
             return False
 
     def send_error_notification(self, error_msg, trace=""):
@@ -54,7 +54,7 @@ class NotifierModule:
         subject = f"[Account Automation] 에러 발생 알림 - {now}"
         body = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚨 자동화 프로그램 에러 발생
+[ERROR] 자동화 프로그램 에러 발생
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 발생 시간: {now}
@@ -83,12 +83,12 @@ class NotifierModule:
 
         body = f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 일일 요약 ({now})
+[REPORT] 일일 요약 ({now})
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📥 업로드할 데이터 수: {total_uploads}건
-✅ 업로드 성공: {success_count}건
-❌ 업로드 실패: {failure_count}건
+[IN] 업로드할 데이터 수: {total_uploads}건
+[OK] 업로드 성공: {success_count}건
+[FAIL] 업로드 실패: {failure_count}건
        승인취소: {cancellations}건
        결재취소: 0건
         취소(-): {cancellations}건

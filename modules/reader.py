@@ -11,7 +11,7 @@ class ReaderModule:
     def navigate_to_payment_query(self) -> bool:
         """결제내역조회 페이지로 이동"""
         try:
-            logger.info("📄 결제내역조회 페이지로 이동...")
+            logger.info("[NAV] 결제내역조회 페이지로 이동...")
             js_code = f"window.location.hash = '{PAYMENT_QUERY_HASH}';"
             self.page.evaluate(js_code)
             
@@ -19,13 +19,13 @@ class ReaderModule:
             time.sleep(15) # 로딩 시간 증대 (네트워크 지연 대비)
             return True
         except Exception as e:
-            logger.error(f"❌ 페이지 이동 실패: {e}")
+            logger.error(f"[ERROR] 페이지 이동 실패: {e}")
             return False
 
     def click_unreflected_filter(self) -> bool:
         """'미반영' 필터 클릭"""
         try:
-            logger.info("🔘 '미반영' 버튼 클릭 시도...")
+            logger.info("[CLICK] '미반영' 버튼 클릭 시도...")
             
             # 1. 프레임 목록 출력 및 로드 대기
             time.sleep(5)
@@ -52,7 +52,7 @@ class ReaderModule:
                         el = frame.locator(selector).first
                         if el.is_visible(timeout=3000):
                             target_element = el
-                            logger.info(f"   ✅ 매칭 발견! 프레임: {frame.name or 'Main'}, 셀렉터: {selector}")
+                            logger.info(f"   [OK] 매칭 발견! 프레임: {frame.name or 'Main'}, 셀렉터: {selector}")
                             break
                     except:
                         continue
@@ -60,10 +60,10 @@ class ReaderModule:
                     break
             
             if not target_element:
-                logger.warning("   ⚠️ 모든 프레임에서 버튼을 찾지 못했습니다. 스크린샷 저장을 시도합니다.")
+                logger.warning("   [WARN] 모든 프레임에서 버튼을 찾지 못했습니다. 스크린샷 저장을 시도합니다.")
                 try:
                     self.page.screenshot(path="logs/debug_unreflected_filter.png")
-                    logger.info("   📸 디버그 스크린샷 저장 완료: logs/debug_unreflected_filter.png")
+                    logger.info("   [SCREENSHOT] 디버그 스크린샷 저장 완료: logs/debug_unreflected_filter.png")
                 except:
                     pass
                 return False
@@ -73,12 +73,12 @@ class ReaderModule:
             time.sleep(10)
             return True
         except Exception as e:
-            logger.error(f"❌ 미반영 버튼 클릭 실패: {e}")
+            logger.error(f"[ERROR] 미반영 버튼 클릭 실패: {e}")
             return False
 
     def read_payment_data(self) -> list:
         """결제내역조회 테이블에서 데이터 읽기"""
-        logger.info("📊 결제내역 데이터 읽기 프로세스 진입...")
+        logger.info("[READ] 결제내역 데이터 읽기 프로세스 진입...")
         try:
             # 데이터 로딩 시간 확보
             time.sleep(5)
@@ -95,7 +95,7 @@ class ReaderModule:
             logger.info(f"   감지된 데이터 행: {row_count}건")
 
             if row_count <= 1:
-                logger.info("ℹ️ 현재 미반영 데이터가 없거나 로딩되지 않았습니다.")
+                logger.info("[INFO] 현재 미반영 데이터가 없거나 로딩되지 않았습니다.")
                 return []
 
             data = []
@@ -120,17 +120,17 @@ class ReaderModule:
                         'auth_no': auth_no
                     })
                 except Exception as e:
-                    logger.warning(f"   ⚠️ 행 {i} 읽기 오류: {e}")
+                    logger.warning(f"   [WARN] 행 {i} 읽기 오류: {e}")
                     continue
 
-            logger.info(f"✅ 총 {len(data)}건의 유효 데이터 추출 완료")
+            logger.info(f"[OK] 총 {len(data)}건의 유효 데이터 추출 완료")
             return data
         except Exception as e:
-            logger.error(f"❌ 데이터 읽기 실패: {e}")
+            logger.error(f"[ERROR] 데이터 읽기 실패: {e}")
             return []
     def get_reflected_status(self) -> set:
         """'회계반영' 탭에서 이미 처리된 승인번호 목록 수집 (실시간 중복 체크용)"""
-        logger.info("🔍 실시간 '회계반영' 내역 확인 중...")
+        logger.info("[CHECK] 실시간 '회계반영' 내역 확인 중...")
         try:
             # 탭 로딩 대기 강화
             time.sleep(8)
@@ -150,7 +150,7 @@ class ReaderModule:
                 if btn_found: break
             
             if not btn_found:
-                logger.warning("   ⚠️ '회계반영' 버튼을 찾지 못해 실시간 체크를 건너뜁니다.")
+                logger.warning("   [WARN] '회계반영' 버튼을 찾지 못해 실시간 체크를 건너뜁니다.")
                 return set()
 
             time.sleep(5) # 로딩 대기
@@ -164,7 +164,7 @@ class ReaderModule:
                 if text and text != "승인번호":
                     reflected_nos.add(text)
             
-            logger.info(f"   ✅ 실시간 회계반영 {len(reflected_nos)}건 감지됨")
+            logger.info(f"   [OK] 실시간 회계반영 {len(reflected_nos)}건 감지됨")
             
             # 다시 '미반영' 탭으로 복구 (다음 작업을 위해)
             self.click_unreflected_filter()
@@ -172,5 +172,5 @@ class ReaderModule:
             return reflected_nos
             
         except Exception as e:
-            logger.error(f"❌ 실시간 내역 수집 실패: {e}")
+            logger.error(f"[ERROR] 실시간 내역 수집 실패: {e}")
             return set()

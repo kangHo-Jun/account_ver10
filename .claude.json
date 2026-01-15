@@ -1,0 +1,28 @@
+{
+    "autoCommit": {
+        "enabled": true,
+        "maxCommits": 20
+    },
+    "customCommands": [
+        {
+            "name": "eod",
+            "description": "퇴근 루틴: 맥락 압축 및 요약 (토큰 절약)",
+            "prompt": "오늘의 진행 상황과 기술적 결정을 요약하고, 내일 재개할 파일/라인을 명시해줘. 이후 /compact를 실행하고 변경사항을 docs/CLAUDE.md에 기록해."
+        },
+        {
+            "name": "sod",
+            "description": "출근 루틴: 맥락 복구 및 설계",
+            "prompt": "어제 요약과 docs/CLAUDE.md를 읽고 오늘 작업 계획을 세워줘. 코딩 전 현재 상태를 테스트(Test)로 먼저 검증해줘."
+        },
+        {
+            "name": "test-fast",
+            "description": "최소 토큰으로 현재 수정 중인 부분만 테스트",
+            "prompt": "현재 열려있는 파일에서 가장 최근에 수정한 로직만 골라내서 부분 테스트를 수행해줘. 외부 라이브러리 분석은 생략하고 실행 결과만 한 줄로 요약해."
+        },
+        {
+            "name": "check-all",
+            "description": "최종 배포 전 전체 흐름 검증 (E2E)",
+            "prompt": "전체 시스템의 E2E 테스트를 수행해줘. 오류 발생 시 '파일명:줄번호:에러내용' 형식으로만 짧게 리스트업하고, 성공 시 'PASS'라고만 출력해."
+        }
+    ]
+}
