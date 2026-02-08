@@ -686,3 +686,176 @@ logger.info("[START] 프로그램 시작")
 ---
 
 **Key Takeaway**: Windows 환경에서 Python 프로그램을 개발할 때는 **콘솔 출력에 이모지를 사용하지 말 것**. 로그 파일(UTF-8)에는 안전하지만, `print()` 시점에서 cp949 인코딩 에러가 발생한다. ASCII 기반 `[TAG]` 형식이 가장 안전하고 이식성이 높다.
+
+---
+
+## Lessons Learned (2026-01-16, 오전 11시)
+
+### 프로세스 락 파일과 좀비 PID 문제
+
+**Problem**: 시스템 재시작 후 `runtime.lock`에 종료된 프로세스의 PID가 남아있어 새 프로세스 시작이 차단됨
+
+**상황 타임라인**:
+```
+08:02:38 - 마지막 하트비트 기록 (PID: 13880)
+08:02 이후 - 프로세스 비정상 종료 (원인 불명)
+11:00 - 복구 시도 시점
+         └── runtime.lock: 13880 (종료된 PID)
+         └── heartbeat.txt: 11:00:01 (갱신 안 됨)
+         └── watchdog.py: 실행 안 됨 (자동 복구 불가)
+```
+
+**증상**:
+```
+[11:05:09] [ERROR] [LOCK] 이미 실행 중인 프로세스 (PID: 13880)
+```
+→ 실제로는 PID 13880이 종료되었지만, lock 파일만 남아있는 상태
+
+### 근본 원인 분석
+
+**3-Layer Defense 시스템의 약점 노출**:
+
+| Layer | 역할 | 이번 사례 |
+|-------|------|-----------|
+| Process Lock | 중복 실행 방지 | 좀비 PID로 인해 **새 프로세스 차단** |
+| Heartbeat | 프로세스 상태 모니터링 | 하트비트 파일은 존재하지만 **갱신 안 됨** |
+| Watchdog | 자동 복구 | **실행되지 않음** → 복구 불가 |
+
+**핵심 문제**: Watchdog가 실행 중이지 않으면 Layer 2, 3가 작동하지 않음
+
+### 해결 과정
+
+```bash
+# 1. 잔류 lock 파일 강제 삭제
+Remove-Item 'runtime.lock' -Force
+
+# 2. main.py 재시작
+Start-Process pythonw -ArgumentList 'main.py'
+
+# 3. watchdog.py 함께 실행
+Start-Process pythonw -ArgumentList 'watchdog.py'
+```
+
+**결과**:
+```
+[11:06:20] [INFO] [LOCK] 프로세스 락 확보 (PID: 18896)
+[11:07:35] [INFO] [OK] 저장 성공 확정: 1건 업로드 완료
+```
+
+### Technical Insights
+
+#### 1. PID 검증 로직의 한계
+
+현재 `acquire_lock()` 구현:
+```python
+# Windows에서 PID 존재 여부 확인
+result = subprocess.run(['tasklist', '/FI', f'PID eq {pid}'], ...)
+if str(pid) in result.stdout:
+    return False  # 프로세스 실행 중
+```
+
+**문제점**: `tasklist` 명령이 실패하거나 출력 형식이 달라지면 PID 검증이 부정확해질 수 있음
+
+#### 2. Watchdog 의존성
+
+**현재 구조**:
+```
+main.py (자동화) ←→ watchdog.py (감시)
+     ↓                    ↓
+ heartbeat.txt      runtime.lock 모니터링
+```
+
+**취약점**:
+- main.py가 비정상 종료되면 watchdog가 복구해야 함
+- 그러나 **watchdog 자체가 실행 중이지 않으면 복구 불가**
+
+#### 3. 복구 우선순위
+
+수동 복구 시 체크리스트:
+1. `tasklist`로 pythonw 프로세스 존재 여부 확인
+2. `heartbeat.txt` 마지막 갱신 시각 확인
+3. `runtime.lock` 삭제 (필요시)
+4. main.py + watchdog.py **함께** 실행
+
+### 개선 권장사항
+
+#### 옵션 A: Watchdog 자동 실행 보장
+
+**방법 1**: Windows 작업 스케줄러에 watchdog.py도 등록
+```
+트리거: 시스템 시작 시
+동작: pythonw watchdog.py
+```
+
+**방법 2**: main.py가 watchdog.py 실행 여부 확인 후 자동 시작
+```python
+def ensure_watchdog_running(self):
+    """watchdog.py 실행 확인 및 자동 시작"""
+    # watchdog 프로세스 확인
+    # 없으면 subprocess.Popen으로 시작
+```
+
+#### 옵션 B: Lock 파일 자동 정리 강화
+
+```python
+def acquire_lock(self):
+    if self.lock_file.exists():
+        old_pid = read_pid()
+
+        # PID 검증 실패 시 lock 파일 삭제
+        if not self.is_process_running(old_pid):
+            logger.warning(f"[LOCK] 좀비 락 파일 정리 (PID: {old_pid})")
+            self.lock_file.unlink()
+```
+
+**현재 구현에 이미 있음** → 문제는 `is_process_running()` 검증이 실패한 것
+
+### 복구 매뉴얼 (Quick Reference)
+
+**증상**: 프로그램이 실행되지 않고 "이미 실행 중" 에러 발생
+
+**진단**:
+```powershell
+# 1. 실제 프로세스 확인
+tasklist /FI "IMAGENAME eq pythonw.exe"
+
+# 2. Lock 파일 확인
+Get-Content runtime.lock
+
+# 3. 하트비트 확인
+Get-Content heartbeat.txt
+```
+
+**복구**:
+```powershell
+# 1. Lock 파일 삭제
+Remove-Item runtime.lock -Force
+
+# 2. 프로세스 재시작
+Start-Process pythonw -ArgumentList 'main.py' -WindowStyle Hidden
+Start-Process pythonw -ArgumentList 'watchdog.py' -WindowStyle Hidden
+
+# 3. 확인
+Start-Sleep -Seconds 5
+Get-Content heartbeat.txt
+```
+
+---
+
+**Key Takeaway**: 3-Layer Defense 시스템은 **모든 Layer가 동시에 작동**해야 효과적이다. 특히 Watchdog(Layer 3)가 실행 중이지 않으면 자동 복구가 불가능하다. 시스템 재시작 후에는 **main.py와 watchdog.py를 반드시 함께 실행**해야 한다.
+
+---
+
+## Session Lessons (2026-01-16)
+
+### 1. Code-Documentation Version Sync
+- **Issue**: `CLAUDE.md` listed the system as V12.3, but the actual `main.py` was still using V9.5 strings and legacy emojis.
+- **Lesson**: Code documentation can sometimes "predict" the target state. Always verify the `main.py` version string and logging format against the latest documentation rules during recovery.
+
+### 2. Unicode/Encoding Sensitivity in Logic
+- **Issue**: The cancellation sign (`-`) logic was failing despite a clear `if status == '취소'` check.
+- **Lesson**: String matching for Korean characters (especially those extracted from web iframes) is highly sensitive to encoding and hidden whitespaces. While `strip()` is used, future fixes should consider substring matching (`'취소' in status`) or hex value comparison to ensure robustness.
+- **Status**: The substring match fix was implemented and then rolled back per user request for future debugging. Current state uses exact match.
+
+### 3. Cleanup of Stale Lock Files
+- **Recovery Step**: Manual deletion of `runtime.lock` and `heartbeat.txt` is the first and most critical step when the orchestrator fails to start after a crash.

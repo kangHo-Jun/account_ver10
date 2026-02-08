@@ -69,13 +69,15 @@ class TransformerModule:
 
             # 날짜 변환 (ERP 표준 / 형식으로 복구)
             date_part = row['date_raw'].split(' ')[0] # 2026/01/06 형태 유지
-            amount_raw = row['amount'].replace(',', '')
+            
+            # 금액에서 모든 종류의 공백(전각 공백, &nbsp; 등 포함) 제거 및 콤마 제거
+            amount_raw = "".join(row['amount'].split()).replace(',', '')
             
             if not amount_raw:
                 continue
 
-            # 2. '취소'인 경우 금액에 마이너스(-) 추가
-            if status == '취소':
+            # 2. '취소'인 경우 금액에 마이너스(-) 추가 (앞뒤 공백 무시)
+            if status.strip() == '취소':
                 stats['cancellations'] += 1
                 if not amount_raw.startswith('-'):
                     amount = f"-{amount_raw}"
