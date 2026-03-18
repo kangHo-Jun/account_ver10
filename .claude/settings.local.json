@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(ping:*)",
+      "Bash(powershell:*)",
+      "Bash(del \"c:\\\\Users\\\\DSAI\\\\Desktop\\\\회계_ERP\\\\runtime.lock\")"
+    ]
+  }
+}
