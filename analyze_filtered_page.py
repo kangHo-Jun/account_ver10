@@ -91,8 +91,8 @@ def analyze_page():
 
         # 5. 현재 테이블 데이터 구조 확인
         print("\n[6] 테이블 데이터 컬럼 확인...")
-        status_cells = page.locator('span[data-column-id="SETL_STAT_NM"]').all()
-        print(f"   결제상태(SETL_STAT_NM) 셀 개수: {len(status_cells)}")
+        status_cells = page.locator('span[data-column-id="SETL_STATUS_TYPE"]').all()
+        print(f"   결제상태(SETL_STATUS_TYPE) 셀 개수: {len(status_cells)}")
 
         # 첫 10개 상태값 출력
         statuses = []

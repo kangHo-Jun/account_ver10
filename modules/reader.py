@@ -88,7 +88,7 @@ class ReaderModule:
             customer_cells = self.page.locator('span[data-column-id="CUST_NM"]').all()
             amount_cells = self.page.locator('span[data-column-id="SETL_AMT"]').all()
             account_cells = self.page.locator('span[data-column-id="ACQUER_NM"]').all()
-            status_cells = self.page.locator('span[data-column-id="SETL_STAT_NM"]').all()
+            status_cells = self.page.locator('span[data-column-id="SETL_STATUS_TYPE"]').all()
             auth_no_cells = self.page.locator('span[data-column-id="APVL_NO"]').all() 
 
             row_count = len(date_cells)

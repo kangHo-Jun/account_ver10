@@ -4,7 +4,9 @@
       "Bash(python:*)",
       "Bash(ping:*)",
       "Bash(powershell:*)",
-      "Bash(del \"c:\\\\Users\\\\DSAI\\\\Desktop\\\\회계_ERP\\\\runtime.lock\")"
+      "Bash(del \"c:\\\\Users\\\\DSAI\\\\Desktop\\\\회계_ERP\\\\runtime.lock\")",
+      "Bash(ls:*)",
+      "Bash(find:*)"
     ]
   }
 }
