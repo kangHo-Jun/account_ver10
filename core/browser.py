@@ -19,23 +19,37 @@ class BrowserManager:
         if headless is None:
             headless = HEADLESS_MODE
 
+        # [강력 조치] 시작 전 잔류 Chrome 프로세스가 있다면 정리 (환경 정비)
+        try:
+            import subprocess
+            subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe', '/T'], capture_output=True)
+            logger.info("[INIT] 잔류 Chrome 프로세스 사전 정리 완료")
+        except:
+            pass
+
         logger.info(f"[BROWSER] 브라우저 시작 중... (headless={headless})")
 
         # Playwright 인스턴스를 매번 새로 생성 (event loop 문제 해결)
-        self.playwright = sync_playwright().start()
+        try:
+            self.playwright = sync_playwright().start()
 
-        # 브라우저는 매번 새로 생성 (리소스 정리)
-        self.browser = self.playwright.chromium.launch(
-            headless=headless,
-            slow_mo=300
-        )
+            # 브라우저는 매번 새로 생성 (리소스 정리)
+            self.browser = self.playwright.chromium.launch(
+                headless=headless,
+                slow_mo=300,
+                args=['--disable-dev-shm-usage', '--no-sandbox'] # 리소스 제한 대응
+            )
 
-        self.context = self.browser.new_context(
-            permissions=['clipboard-read', 'clipboard-write']
-        )
-        self.page = self.context.new_page()
-        logger.info("[OK] 브라우저 시작 완료")
-        return self.page
+            self.context = self.browser.new_context(
+                permissions=['clipboard-read', 'clipboard-write']
+            )
+            self.page = self.context.new_page()
+            logger.info("[OK] 브라우저 시작 완료")
+            return self.page
+        except Exception as e:
+            logger.error(f"[ERROR] 브라우저 시작 실패: {e}")
+            self.close()
+            raise
 
     def load_session(self) -> bool:
         """저장된 세션 로드"""
@@ -97,36 +111,40 @@ class BrowserManager:
 
     def close(self):
         """브라우저 및 Playwright 완전 종료"""
+        logger.info("[STOP] 브라우저 종료 시퀀스 시작...")
         try:
             if self.page:
-                self.page.close()
+                try: self.page.close()
+                except: pass
                 self.page = None
             if self.context:
-                self.context.close()
+                try: self.context.close()
+                except: pass
                 self.context = None
             if self.browser:
-                self.browser.close()
+                try: self.browser.close()
+                except: pass
                 self.browser = None
             if self.playwright:
-                self.playwright.stop()
+                try: self.playwright.stop()
+                except: pass
                 self.playwright = None
 
-            logger.info("[STOP] 브라우저 및 Playwright 완전 종료")
+            # [강력 조치] 좀비 Chrome 프로세스 강제 정리
+            import subprocess
+            subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe', '/T'], capture_output=True)
+            
+            logger.info("[OK] 브라우저 및 Playwright 완전 정리 완료")
         except Exception as e:
-            logger.error(f"[WARN] 브라우저 종료 중 오류: {e}")
-            # 강제 초기화
+            logger.error(f"[WARN] 브라우저 종료 중 예기치 않은 오류: {e}")
+        finally:
+            # 상태 초기화 보장
             self.page = None
             self.context = None
             self.browser = None
             self.playwright = None
 
     def shutdown(self):
-        """애플리케이션 종료 시 완전 정리"""
-        try:
-            self.close()  # 브라우저 먼저 정리
-            if self.playwright:
-                self.playwright.stop()
-                self.playwright = None
-            logger.info("[STOP] Playwright 완전 종료")
-        except Exception as e:
-            logger.error(f"[WARN] Playwright 종료 중 오류: {e}")
+        """애플리케이션 종료 시 최종 정리"""
+        logger.info("[SHUTDOWN] 전체 시스템 자원 정리...")
+        self.close()
