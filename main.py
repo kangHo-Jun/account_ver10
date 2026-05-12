@@ -17,6 +17,8 @@ from core.browser import BrowserManager
 from core.logger import logger
 from modules.login import LoginModule
 from modules.reader import ReaderModule
+from modules.pg_reader import PGReaderModule
+from modules.pg_transformer import PGTransformerModule
 from modules.transformer import TransformerModule
 from modules.uploader import UploaderModule
 from modules.notifier import NotifierModule
@@ -45,6 +47,7 @@ class EcountAutomationOrchestrator:
         }
         self.is_keep_alive = False
         self.daily_report_sent = False  # 일일 보고서 발송 여부
+        self.last_pg_run_at = None
 
     def acquire_lock(self):
         """프로세스 중복 실행 방지 (Windows)"""
@@ -218,6 +221,9 @@ class EcountAutomationOrchestrator:
             self.notifier.send_error_notification(err_msg, traceback.format_exc())
         
         finally:
+            if self.should_run_pg_cycle():
+                self.run_pg_cycle_if_due()
+
             # [지능형 제어] 사이클 종료 시 무조건 브라우저를 닫아 화면을 정리함
             try:
                 self.browser.close()
@@ -227,6 +233,77 @@ class EcountAutomationOrchestrator:
             # 사이클 종료 후 로그 파일 로테이션 (운영 모드에서만)
             if not TEST_MODE:
                 logger.rotate_log_file()
+
+    def should_run_pg_cycle(self) -> bool:
+        """PG 매출조회 사이클 실행 필요 여부 확인 (2시간 주기)"""
+        if self.last_pg_run_at is None:
+            return True
+        elapsed_seconds = (datetime.now() - self.last_pg_run_at).total_seconds()
+        return elapsed_seconds >= 7200
+
+    def run_pg_cycle_if_due(self):
+        """기존 브라우저 세션을 재사용하여 PG 매출조회 업로드 실행"""
+        page = self.browser.page
+        if not page:
+            logger.warning("[PG][WARN] 재사용할 브라우저 페이지가 없어 PG 사이클을 건너뜁니다.")
+            return
+
+        try:
+            if page.url.startswith("https://login.ecount.com/"):
+                logger.warning("[PG][WARN] 로그인 상태가 아니어서 PG 사이클을 건너뜁니다.")
+                return
+        except Exception:
+            logger.warning("[PG][WARN] 현재 페이지 상태 확인 실패로 PG 사이클을 건너뜁니다.")
+            return
+
+        logger.info("[PG][START] 2시간 주기 결제대행사매출조회 사이클 시작")
+        self.last_pg_run_at = datetime.now()
+
+        try:
+            reader = PGReaderModule(page)
+            if not reader.navigate_to_pg_sales_query():
+                raise Exception("결제대행사매출조회 페이지 이동 실패")
+
+            if not reader.click_instant_search():
+                raise Exception("즉시조회 버튼 클릭 실패")
+
+            if not reader.click_popup_search():
+                raise Exception("팝업 조회 클릭 실패")
+
+            if not reader.click_popup_apply():
+                raise Exception("팝업 적용 클릭 실패")
+
+            raw_data = reader.read_pg_sales_data()
+            if not raw_data:
+                logger.info("[PG][INFO] 처리할 데이터가 없습니다.")
+                return
+
+            transformer = PGTransformerModule()
+            paste_rows, new_keys, cycle_stats = transformer.transform(raw_data)
+            if not paste_rows:
+                logger.info("[PG][INFO] 업로드할 새 데이터가 없습니다.")
+                return
+
+            uploader = UploaderModule(page)
+            if not uploader.navigate_to_deposit_report():
+                raise Exception("입금보고서 페이지 이동 실패")
+
+            if not uploader.upload(paste_rows):
+                raise Exception("PG 업로드 과정 중 오류")
+
+            if not TEST_MODE:
+                uploaded_records = transformer.load_uploaded_records()
+                uploaded_records.update(new_keys)
+                transformer.save_uploaded_records(uploaded_records)
+                logger.info(f"[PG][RECORD] {len(new_keys)}건 업로드 기록 저장")
+
+            self.stats["count"] += len(paste_rows)
+            self.stats["cancellations"] += cycle_stats.get("cancellations", 0)
+            logger.info(f"[PG][OK] PG 사이클 완료 ({len(paste_rows)}건 처리)")
+        except Exception as e:
+            err_msg = f"[PG][ERROR] PG 사이클 오류: {e}"
+            logger.error(err_msg)
+            self.notifier.send_error_notification(err_msg, traceback.format_exc())
 
     def run(self):
         try:
