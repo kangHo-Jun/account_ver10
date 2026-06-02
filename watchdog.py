@@ -1,114 +1,144 @@
-#!/usr/bin/env python
+﻿#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-하트비트 감시 스크립트 (Watchdog)
-- heartbeat.txt 파일을 주기적으로 확인
-- 1시간 이상 업데이트 없으면 프로세스 정지로 판단
-- 알림 또는 자동 재시작 수행
+Automation watchdog
+- Monitors heartbeat freshness
+- Restarts automation when heartbeat is stale/missing
 """
 
+import os
 import time
 import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 
-# 설정
 HEARTBEAT_FILE = Path("heartbeat.txt")
-CHECK_INTERVAL = 300  # 5분마다 체크
-TIMEOUT_MINUTES = 60  # 60분 동안 업데이트 없으면 정지로 판단
+LOCK_FILE = Path("runtime.lock")
+WATCHDOG_LOG_DIR = Path("logs")
+CHECK_INTERVAL = 120
+TIMEOUT_MINUTES = 45
+
+
+def log_event(level: str, message: str):
+    now = datetime.now()
+    line = f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] [{level}] {message}"
+    print(line)
+    try:
+        WATCHDOG_LOG_DIR.mkdir(exist_ok=True)
+        logfile = WATCHDOG_LOG_DIR / f"watchdog_events_{now.strftime('%Y%m%d')}.log"
+        with open(logfile, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception as e:
+        print(f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] [WARN] watchdog log write failed: {e}")
+
 
 def check_heartbeat():
-    """하트비트 파일 확인"""
     if not HEARTBEAT_FILE.exists():
-        return None, "하트비트 파일이 없습니다"
+        return None, "heartbeat.txt not found"
 
     try:
-        # 파일 수정 시간 확인
         last_modified = datetime.fromtimestamp(HEARTBEAT_FILE.stat().st_mtime)
         time_diff = datetime.now() - last_modified
-
-        # 파일 내용 읽기
-        with open(HEARTBEAT_FILE, 'r', encoding='utf-8') as f:
+        with open(HEARTBEAT_FILE, "r", encoding="utf-8") as f:
             content = f.read()
-
         return time_diff, content
     except Exception as e:
-        return None, f"하트비트 파일 읽기 실패: {e}"
+        return None, f"heartbeat read error: {e}"
 
-def kill_and_restart():
-    """프로세스 종료 및 재시작"""
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 프로세스 재시작 시도...")
+
+def cleanup_stale_lock():
+    if not LOCK_FILE.exists():
+        return
 
     try:
-        # 모든 pythonw 프로세스 종료
-        subprocess.run(['taskkill', '/F', '/IM', 'pythonw.exe', '/T'],
-                      capture_output=True, text=True)
-        print("  - 기존 프로세스 종료 완료")
+        pid_text = LOCK_FILE.read_text(encoding="utf-8").strip()
+        if not pid_text.isdigit():
+            LOCK_FILE.unlink(missing_ok=True)
+            log_event("WARN", "Removed invalid runtime.lock")
+            return
 
-        # 5초 대기
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {int(pid_text)}"],
+            capture_output=True,
+            text=True,
+        )
+        if pid_text not in result.stdout:
+            LOCK_FILE.unlink(missing_ok=True)
+            log_event("WARN", f"Removed stale runtime.lock (PID: {pid_text})")
+    except Exception as e:
+        log_event("ERROR", f"runtime.lock cleanup error: {e}")
+
+
+def kill_and_restart(reason: str, heartbeat_age_seconds: float | None = None):
+    details = f"reason={reason}"
+    if heartbeat_age_seconds is not None:
+        details += f", heartbeat_age={heartbeat_age_seconds:.0f}s"
+    log_event("ALERT", f"Restart requested ({details})")
+    try:
+        py_kill = subprocess.run(
+            ["taskkill", "/F", "/IM", "pythonw.exe", "/T"], capture_output=True, text=True
+        )
+        ch_kill = subprocess.run(
+            ["taskkill", "/F", "/IM", "chrome.exe", "/T"], capture_output=True, text=True
+        )
+        log_event("INFO", f"taskkill pythonw rc={py_kill.returncode}")
+        log_event("INFO", f"taskkill chrome rc={ch_kill.returncode}")
+
+        cleanup_stale_lock()
         time.sleep(5)
 
-        # 프로그램 재시작
-        subprocess.Popen(['pythonw', 'main.py'],
-                        creationflags=subprocess.CREATE_NO_WINDOW)
-        print("  - 새 프로세스 시작 완료")
-
+        subprocess.Popen(["pythonw", "main.py"], creationflags=subprocess.CREATE_NO_WINDOW)
+        log_event("OK", "Restarted pythonw main.py")
         return True
     except Exception as e:
-        print(f"  - 재시작 실패: {e}")
+        log_event("ERROR", f"Restart failed: {e}")
         return False
 
+
 def main():
-    """메인 감시 루프"""
-    print("=" * 70)
-    print("하트비트 감시 프로그램 시작")
-    print(f"- 체크 간격: {CHECK_INTERVAL}초")
-    print(f"- 타임아웃: {TIMEOUT_MINUTES}분")
-    print("=" * 70)
-    print()
+    log_event("INFO", "=" * 70)
+    log_event("INFO", "Watchdog started")
+    log_event("INFO", f"check interval: {CHECK_INTERVAL}s")
+    log_event("INFO", f"stale timeout: {TIMEOUT_MINUTES}m")
+    log_event("INFO", "=" * 70)
 
     consecutive_errors = 0
 
     while True:
         try:
             time_diff, content = check_heartbeat()
-            now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             if time_diff is None:
-                print(f"[{now_str}] [ERROR] {content}")
+                log_event("ERROR", content)
                 consecutive_errors += 1
 
-                # 3회 연속 에러 시 재시작 시도
                 if consecutive_errors >= 3:
-                    print(f"[{now_str}] [ALERT] 연속 {consecutive_errors}회 에러 - 재시작 시도")
-                    if kill_and_restart():
+                    log_event("ALERT", f"Consecutive heartbeat errors: {consecutive_errors}")
+                    if kill_and_restart("heartbeat_missing", None):
                         consecutive_errors = 0
-                        time.sleep(60)  # 재시작 후 1분 대기
+                        time.sleep(60)
             else:
                 consecutive_errors = 0
 
                 if time_diff > timedelta(minutes=TIMEOUT_MINUTES):
-                    # 타임아웃 발생
-                    print(f"[{now_str}] [ALERT] 프로세스 정지 감지!")
-                    print(f"  - 마지막 업데이트: {time_diff.total_seconds()/60:.1f}분 전")
-                    print(f"  - 내용:\n{content}")
-                    print()
-
-                    # 자동 재시작
-                    if kill_and_restart():
-                        time.sleep(60)  # 재시작 후 1분 대기
+                    age = time_diff.total_seconds()
+                    log_event("ALERT", f"Heartbeat stale: {age/60:.1f}m")
+                    log_event("INFO", f"Heartbeat snapshot: {content.strip().replace(chr(10), ' | ')}")
+                    if kill_and_restart("heartbeat_stale", age):
+                        time.sleep(60)
                 else:
-                    # 정상 작동
-                    print(f"[{now_str}] [OK] 프로세스 정상 작동 (마지막 업데이트: {time_diff.total_seconds():.0f}초 전)")
+                    log_event("OK", f"heartbeat age: {time_diff.total_seconds():.0f}s")
 
             time.sleep(CHECK_INTERVAL)
 
         except KeyboardInterrupt:
-            print("\n감시 프로그램 종료")
+            log_event("INFO", "Watchdog stopped")
             break
         except Exception as e:
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [ERROR] 예외 발생: {e}")
+            log_event("ERROR", f"loop error: {e}")
             time.sleep(CHECK_INTERVAL)
+
 
 if __name__ == "__main__":
     main()
