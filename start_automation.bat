@@ -3,22 +3,21 @@ cd /d "%~dp0"
 
 echo [LOG] ERP Automation Starting...
 
-REM Check runtime.lock to see if main.py is actually running (not just any pythonw.exe)
-if exist "runtime.lock" (
-  set /p LOCK_PID=<runtime.lock
-  tasklist /FI "PID eq %LOCK_PID%" 2>nul | find "%LOCK_PID%" >nul
-  if %errorlevel% equ 0 (
-    echo [WARN] Main automation (PID %LOCK_PID%) is already running. Skipping start.
-    exit /b 0
+REM Skip only when the PID in runtime.lock is still alive.
+if exist runtime.lock (
+  for /f %%I in (runtime.lock) do (
+    tasklist /FI "PID eq %%I" | find "%%I" >nul
+    if not errorlevel 1 (
+      echo [WARN] Program is already running. Skipping start.
+      exit /b 0
+    )
   )
-  echo [LOG] Stale runtime.lock detected (PID %LOCK_PID% not running). Cleaning up.
-  del /f /q runtime.lock >nul 2>&1
 )
 
-REM Cleanup stale Chrome processes
-taskkill /F /IM chrome.exe /T >nul 2>&1
+REM Cleanup stale state before relaunch.
+del /f /q runtime.lock >nul 2>&1
 
-REM Start worker
+REM Start the worker in the background.
 start "" /B pythonw main.py
 
 timeout /t 3 /nobreak >nul
