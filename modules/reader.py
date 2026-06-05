@@ -7,16 +7,44 @@ from utils.config import PAYMENT_QUERY_HASH
 class ReaderModule:
     def __init__(self, page):
         self.page = page
+        self.grid_selector = 'span[data-column-id="SETL_REQST_DTM"]'
+
+    def _wait_for_payment_grid(self, timeout=20000):
+        self.page.wait_for_selector(self.grid_selector, timeout=timeout)
+        row_count = self.page.locator(self.grid_selector).count()
+        if row_count == 0:
+            raise Exception("결제내역조회 화면 진입 실패 — 그리드 미감지")
+        return row_count
 
     def navigate_to_payment_query(self) -> bool:
         """결제내역조회 페이지로 이동"""
         try:
             logger.info("[NAV] 결제내역조회 페이지로 이동...")
-            js_code = f"window.location.hash = '{PAYMENT_QUERY_HASH}';"
-            self.page.evaluate(js_code)
-            
-            # 페이지 로딩 대기
-            time.sleep(15) # 로딩 시간 증대 (네트워크 지연 대비)
+            try:
+                self.page.wait_for_selector('a#link_depth4_MENUTREE_002905', timeout=20000)
+                logger.info("   [OK] ERP 셸 안정화 확인")
+            except Exception:
+                logger.warning("   [WARN] 메뉴 링크 미감지 - 해시 방식으로 진행")
+
+            try:
+                self.page.click('a#link_depth4_MENUTREE_002905')
+                logger.info("   [OK] 결제내역조회 메뉴 클릭")
+            except Exception:
+                js_code = f"window.location.hash = '{PAYMENT_QUERY_HASH}';"
+                self.page.evaluate(js_code)
+                logger.warning("   [WARN] 메뉴 클릭 실패 - 해시 방식 fallback")
+
+            for attempt in range(2):
+                try:
+                    row_count = self._wait_for_payment_grid(timeout=20000)
+                    logger.info(f"   [OK] 그리드 로드 확인 ({row_count}개 요소)")
+                    return True
+                except Exception as e:
+                    if attempt == 0:
+                        logger.warning(f"   [WARN] 그리드 1차 실패 - 재시도: {e}")
+                        time.sleep(3)
+                        continue
+                    raise Exception("결제조회 페이지 이동 실패")
             return True
         except Exception as e:
             logger.error(f"[ERROR] 페이지 이동 실패: {e}")
@@ -69,8 +97,8 @@ class ReaderModule:
                 return False
 
             target_element.click(force=True)
-            logger.info("   데이터 로딩 대기 (10초)...")
-            time.sleep(10)
+            row_count = self._wait_for_payment_grid(timeout=15000)
+            logger.info(f"   [OK] 미반영 그리드 로드 확인 ({row_count}개 요소)")
             return True
         except Exception as e:
             logger.error(f"[ERROR] 미반영 버튼 클릭 실패: {e}")
@@ -84,7 +112,7 @@ class ReaderModule:
             time.sleep(5)
             
             # 각 컬럼의 모든 셀 가져오기
-            date_cells = self.page.locator('span[data-column-id="SETL_REQST_DTM"]').all()
+            date_cells = self.page.locator(self.grid_selector).all()
             customer_cells = self.page.locator('span[data-column-id="CUST_NM"]').all()
             amount_cells = self.page.locator('span[data-column-id="SETL_AMT"]').all()
             account_cells = self.page.locator('span[data-column-id="ACQUER_NM"]').all()
@@ -93,6 +121,9 @@ class ReaderModule:
 
             row_count = len(date_cells)
             logger.info(f"   감지된 데이터 행: {row_count}건")
+
+            if row_count == 0:
+                raise Exception("결제내역조회 화면 진입 실패 — 그리드 미감지")
 
             if row_count <= 1:
                 logger.info("[INFO] 현재 미반영 데이터가 없거나 로딩되지 않았습니다.")

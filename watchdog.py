@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import sys
 # -*- coding: utf-8 -*-
 """
 Automation watchdog
@@ -209,7 +210,7 @@ def kill_and_restart(reason: str, heartbeat_age_seconds: float | None, attempt: 
         cleanup_stale_lock()
         time.sleep(5)
 
-        subprocess.Popen(["pythonw", "main.py"], creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.Popen([sys.executable, "main.py"], creationflags=subprocess.CREATE_NO_WINDOW)
         log_event("OK", f"RESTART_SUCCESS attempt={attempt}")
         return True
     except Exception as e:

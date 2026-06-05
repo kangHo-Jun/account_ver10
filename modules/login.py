@@ -15,15 +15,15 @@ class LoginModule:
 
             # 회사코드 입력
             logger.info("   회사코드 입력...")
-            self.page.locator('input[name="com_code"]').fill(CREDENTIALS.get('company_code', ''))
+            self.page.locator('input#com_code').fill(CREDENTIALS.get('company_code', ''))
 
             # 아이디 입력
             logger.info("   아이디 입력...")
-            self.page.locator('input[name="id"]').fill(CREDENTIALS.get('username', ''))
+            self.page.locator('input#id').fill(CREDENTIALS.get('username', ''))
 
             # 비밀번호 입력
             logger.info("   비밀번호 입력...")
-            self.page.locator('input[name="passwd"]').fill(CREDENTIALS.get('password', ''))
+            self.page.locator('input#passwd').fill(CREDENTIALS.get('password', ''))
 
             time.sleep(1)
 
