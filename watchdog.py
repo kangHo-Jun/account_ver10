@@ -160,6 +160,22 @@ def check_heartbeat():
         return None, f"heartbeat read error: {e}"
 
 
+def get_last_known_pid() -> int | None:
+    """Read the last worker PID from heartbeat.txt."""
+    if not HEARTBEAT_FILE.exists():
+        return None
+    try:
+        lines = HEARTBEAT_FILE.read_text(encoding="utf-8").splitlines()
+        for line in lines:
+            if line.startswith("PID:"):
+                pid_text = line.split(":", 1)[1].strip()
+                if pid_text.isdigit():
+                    return int(pid_text)
+    except Exception as e:
+        log_event("WARN", f"heartbeat PID read error: {e}")
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Lock cleanup + restart
 # ---------------------------------------------------------------------------
@@ -198,14 +214,14 @@ def kill_and_restart(reason: str, heartbeat_age_seconds: float | None, attempt: 
     )
 
     try:
-        py_kill = subprocess.run(
-            ["taskkill", "/F", "/IM", "pythonw.exe", "/T"], capture_output=True, text=True
-        )
-        ch_kill = subprocess.run(
-            ["taskkill", "/F", "/IM", "chrome.exe", "/T"], capture_output=True, text=True
-        )
-        log_event("INFO", f"taskkill pythonw rc={py_kill.returncode}")
-        log_event("INFO", f"taskkill chrome rc={ch_kill.returncode}")
+        target_pid = get_last_known_pid()
+        if target_pid:
+            kill_result = subprocess.run(
+                ["taskkill", "/F", "/PID", str(target_pid), "/T"], capture_output=True, text=True
+            )
+            log_event("INFO", f"[KILL] PID {target_pid} rc={kill_result.returncode}")
+        else:
+            log_event("WARN", "[KILL] heartbeat에서 종료 대상 PID를 찾지 못함")
 
         cleanup_stale_lock()
         time.sleep(5)
