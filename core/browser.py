@@ -14,18 +14,19 @@ class BrowserManager:
         self.page = None
         self.session_file = Path("sessions/session.json")
 
+    def get_erp_frame(self):
+        """Return the ERP frame when the wrapper page is in use."""
+        if not self.page:
+            return None
+        for frame in self.page.frames:
+            if 'ec5/view/erp' in frame.url:
+                return frame
+        return self.page
+
     def start(self, headless=None):
         """브라우저 시작"""
         if headless is None:
             headless = HEADLESS_MODE
-
-        # [강력 조치] 시작 전 잔류 Chrome 프로세스가 있다면 정리 (환경 정비)
-        try:
-            import subprocess
-            subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe', '/T'], capture_output=True)
-            logger.info("[INIT] 잔류 Chrome 프로세스 사전 정리 완료")
-        except:
-            pass
 
         logger.info(f"[BROWSER] 브라우저 시작 중... (headless={headless})")
 
@@ -76,8 +77,10 @@ class BrowserManager:
                 time.sleep(5) 
 
                 current_url = self.page.url
-                if "app.login" not in current_url and "login.ecount.com" not in current_url:
-                    logger.info(f"[OK] 세션 유효함 (URL: {current_url})")
+                erp_target = self.get_erp_frame()
+                erp_url = erp_target.url if erp_target else current_url
+                if "login.ecount.com" not in current_url and "ec5/view/erp" in erp_url:
+                    logger.info(f"[OK] 세션 유효함 (URL: {erp_url})")
                     return True
                 else:
                     logger.warning(f"[WARN] 세션 만료됨 (로그인 페이지 감지: {current_url})")
@@ -95,10 +98,13 @@ class BrowserManager:
                 return
 
             cookies = self.context.cookies()
+            erp_target = self.get_erp_frame()
+            target_url = erp_target.url if erp_target else self.page.url
+
             session_data = {
                 'cookies': cookies,
                 'saved_at': datetime.now().isoformat(),
-                'url': self.page.url
+                'url': target_url
             }
 
             self.session_file.parent.mkdir(exist_ok=True)
@@ -130,10 +136,6 @@ class BrowserManager:
                 except: pass
                 self.playwright = None
 
-            # [강력 조치] 좀비 Chrome 프로세스 강제 정리
-            import subprocess
-            subprocess.run(['taskkill', '/F', '/IM', 'chrome.exe', '/T'], capture_output=True)
-            
             logger.info("[OK] 브라우저 및 Playwright 완전 정리 완료")
         except Exception as e:
             logger.error(f"[WARN] 브라우저 종료 중 예기치 않은 오류: {e}")

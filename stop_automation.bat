@@ -1,15 +1,13 @@
 @echo off
 REM ================================================
-REM ERP automation stop script
+REM ERP 자동화 종료 스크립트
 REM ================================================
 
 echo [LOG] ERP Automation Stopping...
-echo [LOG] Stopping automation worker...
+echo [LOG] 프로그램을 종료합니다.
 
-REM Stop only the PID tracked in runtime.lock.
-if exist runtime.lock (
-    for /f %%I in (runtime.lock) do taskkill /F /PID %%I /T 2>nul
-)
+REM 프로세스 종료
+taskkill /F /IM pythonw.exe /T 2>nul
 if %errorlevel% equ 0 (
     echo [OK] Program stopped successfully.
 ) else (

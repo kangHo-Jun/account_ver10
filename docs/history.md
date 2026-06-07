@@ -1,11 +1,11 @@
 # Project History & Change Log
 
-## 2026-06-05
-- 로그인 셀렉터 불일치 인시던트 발생 및 해결
-- 결제내역조회 페이지 진입 타이밍 문제 발견 및 해결
-- watchdog Python 환경 통일 (`.venv` 고정)
-- 누락 데이터 36건 복구 완료
-- 상세 내용: `docs/incident_20260605.md`
+## 2026-06-08
+- Rechecked the 2026-06-06 payment-query failure alert.
+- Confirmed cause: ERP payment query grid did not load after login/menu navigation, triggering `결제조회 페이지 이동 실패`.
+- Added pagination-enabled ERP `미반영` read verification.
+- Current ERP `미반영` recheck found `2026/06/06` rows: `0`.
+- Incident record: `docs/incident_20260608_0606_recheck.md`.
 
 ## 2026-04-01
 - **v1 Baseline 설정**
