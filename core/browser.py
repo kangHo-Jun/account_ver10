@@ -2,9 +2,15 @@ import json
 import time
 from pathlib import Path
 from datetime import datetime
+
 from playwright.sync_api import sync_playwright
+
 from core.logger import logger
 from utils.config import HEADLESS_MODE
+
+
+ERP_BASE_URL = "https://loginab.ecount.com/ec5/view/erp?w_flag=1"
+
 
 class BrowserManager:
     def __init__(self):
@@ -19,134 +25,207 @@ class BrowserManager:
         if not self.page:
             return None
         for frame in self.page.frames:
-            if 'ec5/view/erp' in frame.url:
+            if "ec5/view/erp" in frame.url:
                 return frame
         return self.page
 
+    def _is_bad_session_url(self, url: str) -> bool:
+        return (
+            not url
+            or "login.ecount.com" in url
+            or "app.login/erp_login" in url
+            or "ec5/view/erp" not in url
+        )
+
+    def _erp_url_from_cookies(self):
+        if not self.context:
+            return None
+
+        for cookie in self.context.cookies():
+            if cookie.get("name") != "ECOUNT_SessionId":
+                continue
+
+            raw_value = cookie.get("value", "")
+            session_id = raw_value.split("=", 1)[0]
+            if session_id:
+                return f"{ERP_BASE_URL}&ec_req_sid={session_id}"
+
+        return None
+
+    def _recover_erp_shell_from_cookie(self) -> bool:
+        direct_url = self._erp_url_from_cookies()
+        if not direct_url:
+            logger.warning("[SESSION] ERP session cookie not found for direct shell recovery")
+            return False
+
+        try:
+            logger.warning(f"[SESSION] opening ERP shell directly from session cookie: {direct_url}")
+            self.page.goto(direct_url, wait_until="load", timeout=30000)
+            time.sleep(5)
+            return True
+        except Exception as e:
+            logger.warning(f"[SESSION] direct ERP shell recovery failed: {e}")
+            return False
+
+    def wait_for_erp_shell(self, timeout=60000, allow_recovery=True) -> bool:
+        """Wait until the real ERP shell frame is loaded."""
+        if not self.page:
+            return False
+
+        deadline = time.time() + (timeout / 1000)
+        while time.time() < deadline:
+            current_url = self.page.url
+            erp_target = self.get_erp_frame()
+            erp_url = erp_target.url if erp_target else current_url
+
+            if "ec5/view/erp" in erp_url and "app.login/erp_login" not in erp_url:
+                logger.info(f"[OK] ERP shell ready (URL: {erp_url})")
+                return True
+
+            if "app.login/erp_login" in current_url:
+                logger.info("[SESSION] waiting for ERP frame from login handoff page")
+
+            time.sleep(2)
+
+        if allow_recovery and "app.login/erp_login" in self.page.url:
+            if self._recover_erp_shell_from_cookie():
+                return self.wait_for_erp_shell(timeout=20000, allow_recovery=False)
+
+        frame_urls = [frame.url for frame in self.page.frames]
+        logger.warning(
+            f"[WARN] ERP shell not ready (current URL: {self.page.url}, frames: {frame_urls})"
+        )
+        return False
+
     def start(self, headless=None):
-        """브라우저 시작"""
+        """Start browser."""
         if headless is None:
             headless = HEADLESS_MODE
 
-        logger.info(f"[BROWSER] 브라우저 시작 중... (headless={headless})")
+        logger.info(f"[BROWSER] browser starting... (headless={headless})")
 
-        # Playwright 인스턴스를 매번 새로 생성 (event loop 문제 해결)
         try:
             self.playwright = sync_playwright().start()
-
-            # 브라우저는 매번 새로 생성 (리소스 정리)
             self.browser = self.playwright.chromium.launch(
                 headless=headless,
                 slow_mo=300,
-                args=['--disable-dev-shm-usage', '--no-sandbox'] # 리소스 제한 대응
             )
-
-            self.context = self.browser.new_context(
-                permissions=['clipboard-read', 'clipboard-write']
-            )
+            self.context = self.browser.new_context()
             self.page = self.context.new_page()
-            logger.info("[OK] 브라우저 시작 완료")
+            logger.info("[OK] browser started")
             return self.page
         except Exception as e:
-            logger.error(f"[ERROR] 브라우저 시작 실패: {e}")
+            logger.error(f"[ERROR] browser start failed: {e}")
             self.close()
             raise
 
     def load_session(self) -> bool:
-        """저장된 세션 로드"""
+        """Load saved ERP session."""
         if not self.session_file.exists():
-            logger.info("[INFO] 저장된 세션 없음")
+            logger.info("[INFO] saved session does not exist")
             return False
 
         try:
-            with open(self.session_file, 'r', encoding='utf-8') as f:
+            with open(self.session_file, "r", encoding="utf-8") as f:
                 session_data = json.load(f)
 
-            if 'cookies' in session_data:
-                self.context.add_cookies(session_data['cookies'])
-                logger.info("[SESSION] 세션 쿠키 로드 완료")
+            if "cookies" not in session_data:
+                return False
 
-                saved_url = session_data.get('url', 'https://loginab.ecount.com/ec5/view/erp')
-                
-                # 페이지가 닫혀있는지 확인 후 재생성
-                if self.page.is_closed():
-                    self.page = self.context.new_page()
+            self.context.add_cookies(session_data["cookies"])
+            logger.info("[SESSION] cookies loaded")
 
-                logger.info(f"[SESSION] 세션 URL 접속 시도: {saved_url}")
-                self.page.goto(saved_url, wait_until='load', timeout=30000)
-                time.sleep(5) 
+            saved_url = session_data.get("url", ERP_BASE_URL)
+            if self._is_bad_session_url(saved_url):
+                logger.warning(f"[SESSION] invalid saved URL ignored: {saved_url}")
+                self.context.clear_cookies()
+                return False
 
-                current_url = self.page.url
-                erp_target = self.get_erp_frame()
-                erp_url = erp_target.url if erp_target else current_url
-                if "login.ecount.com" not in current_url and "ec5/view/erp" in erp_url:
-                    logger.info(f"[OK] 세션 유효함 (URL: {erp_url})")
-                    return True
-                else:
-                    logger.warning(f"[WARN] 세션 만료됨 (로그인 페이지 감지: {current_url})")
-                    self.context.clear_cookies()
-                    return False
+            if self.page.is_closed():
+                self.page = self.context.new_page()
+
+            logger.info(f"[SESSION] navigating to saved URL: {saved_url}")
+            self.page.goto(saved_url, wait_until="load", timeout=30000)
+            time.sleep(5)
+
+            current_url = self.page.url
+            if self.wait_for_erp_shell(timeout=30000):
+                return True
+
+            logger.warning(f"[WARN] saved session invalid (current URL: {current_url})")
+            self.context.clear_cookies()
             return False
         except Exception as e:
-            logger.error(f"[ERROR] 세션 로드 실패: {e}")
+            logger.error(f"[ERROR] session load failed: {e}")
             return False
 
     def save_session(self):
-        """현재 세션 저장"""
+        """Save current ERP session."""
         try:
-            if self.page.url.startswith('https://login.ecount.com/'):
+            if self.page.url.startswith("https://login.ecount.com/"):
+                logger.warning(f"[SESSION] skip saving login URL: {self.page.url}")
                 return
 
             cookies = self.context.cookies()
             erp_target = self.get_erp_frame()
             target_url = erp_target.url if erp_target else self.page.url
+            if self._is_bad_session_url(target_url):
+                logger.warning(f"[SESSION] skip saving invalid ERP target URL: {target_url}")
+                return
 
             session_data = {
-                'cookies': cookies,
-                'saved_at': datetime.now().isoformat(),
-                'url': target_url
+                "cookies": cookies,
+                "saved_at": datetime.now().isoformat(),
+                "url": target_url,
             }
 
             self.session_file.parent.mkdir(exist_ok=True)
-            with open(self.session_file, 'w', encoding='utf-8') as f:
+            with open(self.session_file, "w", encoding="utf-8") as f:
                 json.dump(session_data, f, ensure_ascii=False, indent=2)
 
-            logger.info("[SAVE] 세션 저장 완료")
+            logger.info("[SAVE] session saved")
         except Exception as e:
-            logger.error(f"[ERROR] 세션 저장 실패: {e}")
+            logger.error(f"[ERROR] session save failed: {e}")
 
     def close(self):
-        """브라우저 및 Playwright 완전 종료"""
-        logger.info("[STOP] 브라우저 종료 시퀀스 시작...")
+        """Close browser and Playwright resources."""
+        logger.info("[STOP] browser cleanup starting...")
         try:
             if self.page:
-                try: self.page.close()
-                except: pass
+                try:
+                    self.page.close()
+                except Exception:
+                    pass
                 self.page = None
             if self.context:
-                try: self.context.close()
-                except: pass
+                try:
+                    self.context.close()
+                except Exception:
+                    pass
                 self.context = None
             if self.browser:
-                try: self.browser.close()
-                except: pass
+                try:
+                    self.browser.close()
+                except Exception:
+                    pass
                 self.browser = None
             if self.playwright:
-                try: self.playwright.stop()
-                except: pass
+                try:
+                    self.playwright.stop()
+                except Exception:
+                    pass
                 self.playwright = None
 
-            logger.info("[OK] 브라우저 및 Playwright 완전 정리 완료")
+            logger.info("[OK] browser and Playwright cleaned up")
         except Exception as e:
-            logger.error(f"[WARN] 브라우저 종료 중 예기치 않은 오류: {e}")
+            logger.error(f"[WARN] browser cleanup error: {e}")
         finally:
-            # 상태 초기화 보장
             self.page = None
             self.context = None
             self.browser = None
             self.playwright = None
 
     def shutdown(self):
-        """애플리케이션 종료 시 최종 정리"""
-        logger.info("[SHUTDOWN] 전체 시스템 자원 정리...")
+        """Final shutdown."""
+        logger.info("[SHUTDOWN] final resource cleanup...")
         self.close()

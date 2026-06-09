@@ -28,6 +28,8 @@ class ReaderModule:
         """결제내역조회 페이지로 이동"""
         try:
             logger.info("[NAV] 결제내역조회 페이지로 이동...")
+            if self.browser_manager and not self.browser_manager.wait_for_erp_shell(timeout=30000):
+                raise Exception("ERP shell is not ready")
             target = self._get_erp_target()
 
             try:

@@ -45,6 +45,10 @@ class LoginModule:
 
             logger.info("[OK] 로그인 성공")
 
+            if self.browser_manager and not self.browser_manager.wait_for_erp_shell(timeout=60000):
+                logger.error("[ERROR] ERP shell load failed after login")
+                return False
+
             try:
                 erp_target = self._get_erp_target()
                 erp_target.wait_for_selector('a#link_depth4_MENUTREE_002905', timeout=30000)
