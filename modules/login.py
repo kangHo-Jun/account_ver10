@@ -45,6 +45,13 @@ class LoginModule:
 
             logger.info("[OK] 로그인 성공")
 
+            try:
+                self.page.wait_for_selector('button:has-text("등록안함")', timeout=5000)
+                self.page.click('button:has-text("등록안함")')
+                logger.info("[OK] new device popup - clicked do not register")
+            except Exception:
+                logger.info("[OK] new device popup not found - continuing")
+
             if self.browser_manager and not self.browser_manager.wait_for_erp_shell(timeout=60000):
                 logger.error("[ERROR] ERP shell load failed after login")
                 return False
