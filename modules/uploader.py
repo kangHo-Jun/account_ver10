@@ -8,6 +8,80 @@ class UploaderModule:
     def __init__(self, page):
         self.page = page
 
+    def _focus_upload_grid(self, popup):
+        """Focus the first editable cell in the ECOUNT bulk upload grid."""
+        first_cell = popup.locator('tr[data-index="0"] td').first
+        try:
+            if not first_cell.is_visible():
+                first_cell = popup.locator('input.form-control').first
+        except Exception:
+            first_cell = popup.locator('input.form-control').first
+
+        first_cell.click(force=True)
+        time.sleep(0.5)
+        return first_cell
+
+    def _grid_has_pasted_data(self, popup, processed_rows: list) -> bool:
+        if not processed_rows or not processed_rows[0]:
+            return False
+
+        expected_first_cell = str(processed_rows[0][0]).strip()
+        if not expected_first_cell:
+            return False
+
+        try:
+            grid_text = popup.inner_text(timeout=3000)
+            return expected_first_cell in grid_text
+        except Exception as e:
+            logger.warning(f"   [WARN] upload grid verification failed: {e}")
+            return False
+
+    def _paste_with_verification(self, popup, paste_text: str, processed_rows: list) -> bool:
+        import json
+
+        for attempt in range(1, 4):
+            try:
+                self.page.evaluate(f"navigator.clipboard.writeText({json.dumps(paste_text)})")
+            except Exception:
+                pyperclip.copy(paste_text)
+
+            try:
+                self._focus_upload_grid(popup)
+                if attempt > 1:
+                    self.page.keyboard.press('Control+A')
+                    time.sleep(0.2)
+
+                logger.info(f"   [KEY] Control+V attempt {attempt}")
+                self.page.keyboard.down('Control')
+                self.page.keyboard.press('v')
+                self.page.keyboard.up('Control')
+                time.sleep(3)
+
+                if self._grid_has_pasted_data(popup, processed_rows):
+                    logger.info(f"   [OK] upload grid data detected after paste attempt {attempt}")
+                    return True
+
+                logger.warning(f"   [WARN] upload grid data not detected after paste attempt {attempt}")
+
+                if attempt == 1:
+                    logger.warning("   [WARN] trying keyboard.type fallback")
+                    self._focus_upload_grid(popup)
+                    self.page.keyboard.press('Control+A')
+                    self.page.keyboard.type(paste_text)
+                    time.sleep(3)
+                    if self._grid_has_pasted_data(popup, processed_rows):
+                        logger.info("   [OK] upload grid data detected after type fallback")
+                        return True
+            except Exception as e:
+                logger.warning(f"   [WARN] paste attempt {attempt} failed: {e}")
+
+        logger.error("[ERROR] upload grid stayed empty after paste retries - save blocked")
+        try:
+            self.page.screenshot(path=f"logs/upload_grid_empty_{int(time.time())}.png")
+        except Exception:
+            pass
+        return False
+
     def navigate_to_deposit_report(self) -> bool:
         """입금보고서 페이지로 이동"""
         try:
@@ -59,35 +133,14 @@ class UploaderModule:
             
             # 그리드 영역 포커스 확보
             try:
-                first_cell = popup.locator('tr[data-index="0"] td').first
-                if not first_cell.is_visible():
-                    first_cell = popup.locator('input.form-control').first
-                
-                first_cell.click(force=True)
+                self._focus_upload_grid(popup)
                 time.sleep(1)
                 logger.info("   [FOCUS] 그리드 포커스 확보 완료")
             except Exception as e:
                 logger.warning(f"   [WARN] 포커스 확보 시도 중 예외(무시 가능): {e}")
 
-            logger.info(f"   [KEY] Control+V 실행 (데이터 주입 방식: Virtual Clipboard)")
-            
-            # [V10.6/V10.7] 저레벨 키 입력 시퀀스
-            self.page.keyboard.down('Control')
-            self.page.keyboard.press('v')
-            self.page.keyboard.up('Control')
-            
-            time.sleep(3)
-            
-            # [V12.0] 붙여넣기 후 그리드 데이터 건수 검증
-            try:
-                grid_text = popup.inner_text()
-                # 첫 번째 행 데이터 확인
-                if processed_rows and processed_rows[0][0] not in grid_text:
-                    logger.warning("[WARN] 붙여넣기 후 그리드에서 데이터 미감지 -> 폴백(Type) 시도")
-                    first_cell.click()
-                    self.page.keyboard.type(paste_text)
-                    time.sleep(3)
-            except: pass
+            if not self._paste_with_verification(popup, paste_text, processed_rows):
+                return False
 
             # 4. 저장 (F8) - [V12.1] 팝업 정리 후 저장
             if TEST_MODE:
@@ -123,8 +176,9 @@ class UploaderModule:
                 result_popup = self.page.locator('div.ui-dialog').last
                 
                 if not result_popup.is_visible():
-                    logger.warning("[WARN] 저장 결과 팝업을 찾을 수 없음 - 저장 성공으로 간주")
-                    return True
+                    logger.warning("[WARN] 저장 결과 팝업을 찾을 수 없음 - 저장 성공으로 간주 불가")
+                    self.page.screenshot(path=f"logs/save_no_result_{int(time.time())}.png")
+                    return False
                 
                 msg = result_popup.inner_text()
                 logger.info(f"[RESULT] 저장 결과 팝업: {msg.replace(chr(10), ' ')[:200]}...")
@@ -149,6 +203,10 @@ class UploaderModule:
                 if match:
 
                     success_count = int(match.group(1))
+                    if success_count != len(processed_rows):
+                        logger.error(f"[ERROR] 업로드 건수 불일치: 기대 {len(processed_rows)}건, 결과 {success_count}건")
+                        self.page.screenshot(path=f"logs/upload_count_mismatch_{int(time.time())}.png")
+                        return False
                     logger.info(f"[OK] 저장 성공 확정: {success_count}건 업로드 완료")
                     
                     # 닫기 버튼 클릭
