@@ -1,5 +1,15 @@
 # Project History & Change Log
 
+## 2026-06-22
+- Investigated repeated 2026-06-20 upload-process alert mails.
+- Confirmed cause: ECOUNT bulk upload grid did not receive pasted rows, but the previous flow could still press `F8`.
+- Confirmed recovery: 2026-06-20 backlog `12` rows were uploaded successfully on 2026-06-22 07:13, together with 2026-06-22 `2` rows.
+- Added upload-grid paste verification and save blocking in `modules/uploader.py`.
+- Commits:
+  - `751de77 checkpoint: before upload guard fix`
+  - `f0834aa fix: block empty upload grid saves`
+- Incident record: `docs/incident_20260620_upload_grid_paste_failure.md`.
+
 ## 2026-06-08
 - Rechecked the 2026-06-06 payment-query failure alert.
 - Confirmed cause: ERP payment query grid did not load after login/menu navigation, triggering `결제조회 페이지 이동 실패`.
