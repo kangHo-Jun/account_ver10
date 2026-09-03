@@ -1,5 +1,16 @@
 # Project History & Change Log
 
+## 2026-09-04
+- Investigated the 2026-09-03 17:13:12 `login failure` alert mail.
+- Confirmed cause: ECOUNT changed the post-login redirect path from `ec5/view/erp` to `ec56/view/erp`; the ERP shell loaded correctly but `core/browser.py` only recognized the hardcoded `ec5` substring, so every fresh login (2026-09-03 07:05 through 2026-09-04 07:44, ~45 cycles / 38 hours) was misclassified as a failure.
+- Fixed `core/browser.py` to match any `ecNN/view/erp` redirect via regex instead of a hardcoded `ec5` string.
+- Restarted the production process (Session 0 / Task-Scheduler-managed, had been running unrestarted since 2026-08-14; required an elevated PowerShell to stop). Old PID `21652` -> new PID `41100`.
+- Confirmed recovery: full 38-hour backlog (`40` rows, 2026-09-03 06:44 through 2026-09-04) uploaded successfully on the first cycle after restart, `성공 : 40건 실패 : 0건`.
+- Found two related but separate open issues, not fixed yet: a broken duplicate `venv/` (missing Playwright's Node driver; production actually runs on `.venv/`), and no handling for ECOUNT's "동일 ID 접속중" concurrent-session confirmation popup (reproduced live when a diagnostic login collided with the still-active production session).
+- Commits:
+  - `<fill in after commit>`
+- Incident record: `docs/incident_20260903_ec56_url_pattern_login_failure.md`.
+
 ## 2026-06-22
 - Investigated repeated 2026-06-20 upload-process alert mails.
 - Confirmed cause: ECOUNT bulk upload grid did not receive pasted rows, but the previous flow could still press `F8`.

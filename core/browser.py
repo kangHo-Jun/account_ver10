@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from pathlib import Path
 from datetime import datetime
@@ -9,7 +10,8 @@ from core.logger import logger
 from utils.config import HEADLESS_MODE
 
 
-ERP_BASE_URL = "https://loginab.ecount.com/ec5/view/erp?w_flag=1"
+ERP_BASE_URL = "https://loginab.ecount.com/ec56/view/erp?w_flag=1"
+ERP_SHELL_PATTERN = re.compile(r"ec\d+/view/erp")
 
 
 class BrowserManager:
@@ -25,7 +27,7 @@ class BrowserManager:
         if not self.page:
             return None
         for frame in self.page.frames:
-            if "ec5/view/erp" in frame.url:
+            if ERP_SHELL_PATTERN.search(frame.url):
                 return frame
         return self.page
 
@@ -34,7 +36,7 @@ class BrowserManager:
             not url
             or "login.ecount.com" in url
             or "app.login/erp_login" in url
-            or "ec5/view/erp" not in url
+            or not ERP_SHELL_PATTERN.search(url)
         )
 
     def _erp_url_from_cookies(self):
@@ -78,7 +80,7 @@ class BrowserManager:
             erp_target = self.get_erp_frame()
             erp_url = erp_target.url if erp_target else current_url
 
-            if "ec5/view/erp" in erp_url and "app.login/erp_login" not in erp_url:
+            if ERP_SHELL_PATTERN.search(erp_url) and "app.login/erp_login" not in erp_url:
                 logger.info(f"[OK] ERP shell ready (URL: {erp_url})")
                 return True
 
