@@ -8,7 +8,7 @@
 - Confirmed recovery: full 38-hour backlog (`40` rows, 2026-09-03 06:44 through 2026-09-04) uploaded successfully on the first cycle after restart, `성공 : 40건 실패 : 0건`.
 - Found two related but separate open issues, not fixed yet: a broken duplicate `venv/` (missing Playwright's Node driver; production actually runs on `.venv/`), and no handling for ECOUNT's "동일 ID 접속중" concurrent-session confirmation popup (reproduced live when a diagnostic login collided with the still-active production session).
 - Commits:
-  - `<fill in after commit>`
+  - `28a5ccf fix: recognize ecNN/view/erp ERP shell URLs (was hardcoded to ec5)`
 - Incident record: `docs/incident_20260903_ec56_url_pattern_login_failure.md`.
 
 ## 2026-06-22
